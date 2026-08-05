@@ -1,0 +1,19 @@
+# ── Questlog API on Render ────────────────────────────────────────────────────
+# Blueprint: Infrastructure as Code for Render.
+# See: https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: questlog-api
+    env: docker
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: STEAM_API_KEY
+        sync: false
+      - key: IGDB_CLIENT_ID
+        sync: false
+      - key: IGDB_CLIENT_SECRET
+        sync: false
