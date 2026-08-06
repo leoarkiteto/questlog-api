@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -105,6 +106,11 @@ func (s *Server) handleCreateGame(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	created, err := s.store.Create(r.Context(), &g)
+	var dup *repo.ErrDuplicate
+	if errors.As(err, &dup) {
+		writeError(w, http.StatusConflict, duplicateMessage(dup))
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create game")
 		log.Printf("create game: %v", err)
@@ -145,6 +151,11 @@ func (s *Server) handleUpdateGame(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	updated, err := s.store.Update(r.Context(), id, &g)
+	var dup *repo.ErrDuplicate
+	if errors.As(err, &dup) {
+		writeError(w, http.StatusConflict, duplicateMessage(dup))
+		return
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "game not found")
 		return
@@ -175,6 +186,14 @@ func (s *Server) handleDeleteGame(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---- Helpers ----
+
+// duplicateMessage explains why a game couldn't be added/renamed: it's
+// already in the collection, and the fix is to edit that card's list
+// rather than create a second card.
+func duplicateMessage(dup *repo.ErrDuplicate) string {
+	return fmt.Sprintf("%q is already in your collection as %s — edit that card to change its list.",
+		dup.Existing.Title, dup.Existing.Status.Display())
+}
 
 func gameID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)

@@ -3,15 +3,17 @@ package repo
 import (
 	"context"
 	"embed"
+	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"questlog/internal/model"
 )
-
 
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
@@ -113,6 +115,53 @@ func (s *Store) applyMigration(ctx context.Context, name, sqlText string) error 
 
 // ---- Games ----
 
+// ErrDuplicate reports that a game is already in the collection (same
+// normalized title or same Steam app id). Existing holds the conflicting
+// card so callers can surface its current status/list.
+type ErrDuplicate struct {
+	Existing model.Game
+}
+
+func (e *ErrDuplicate) Error() string {
+	return fmt.Sprintf("game %q already exists (id %d, status %s)", e.Existing.Title, e.Existing.ID, e.Existing.Status)
+}
+
+// normalizeTitle reduces a title to its comparison key: lowercase,
+// trimmed, internal whitespace runs collapsed to single spaces. Must stay
+// in sync with migration 0005, which applies the same rule in SQL
+// (lower(btrim(regexp_replace(title, '[[:space:]]+', ' ', 'g')))).
+func normalizeTitle(s string) string {
+	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(s)), " "))
+}
+
+// isUniqueViolation reports whether err is a Postgres unique-constraint
+// violation (SQLSTATE 23505).
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
+
+// findDuplicate returns the first card that would collide with g: same
+// normalized title, or same non-null Steam app id. excludeID skips the
+// card being updated. Returns nil when there is no conflict.
+func (s *Store) findDuplicate(ctx context.Context, excludeID int64, g *model.Game, norm string) (*model.Game, error) {
+	row := s.pool.QueryRow(ctx, `
+		SELECT `+gameCols+` FROM games
+		WHERE id <> $1
+		  AND (normalized_title = $2 OR ($3::bigint IS NOT NULL AND steam_appid = $3))
+		ORDER BY id DESC
+		LIMIT 1`,
+		excludeID, norm, g.SteamAppID)
+	existing, err := scanGame(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return existing, nil
+}
+
 const gameCols = `id, title, status, rating, platform, year, genre, cover_url, description, notes, steam_appid, time_to_beat_minutes, created_at, updated_at`
 
 func scanGame(row pgx.Row) (*model.Game, error) {
@@ -160,18 +209,52 @@ func (s *Store) Get(ctx context.Context, id int64) (*model.Game, error) {
 }
 
 // Create inserts a new game and returns it with id and timestamps.
+// Returns *ErrDuplicate when a card with the same normalized title or
+// Steam app id already exists — a game may only appear once.
 func (s *Store) Create(ctx context.Context, g *model.Game) (*model.Game, error) {
+	norm := normalizeTitle(g.Title)
+	existing, err := s.findDuplicate(ctx, 0, g, norm)
+	if err != nil {
+		return nil, err
+	}
+	if existing != nil {
+		return nil, &ErrDuplicate{Existing: *existing}
+	}
+
 	row := s.pool.QueryRow(ctx, `
-		INSERT INTO games (title, status, rating, platform, year, genre, cover_url, description, notes, steam_appid, time_to_beat_minutes)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		INSERT INTO games (title, status, rating, platform, year, genre, cover_url, description, notes, steam_appid, time_to_beat_minutes, normalized_title)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING `+gameCols,
 		g.Title, g.Status, g.Rating, g.Platform, g.Year, g.Genre, g.CoverURL,
-		g.Description, g.Notes, g.SteamAppID, g.TimeToBeatMinutes)
-	return scanGame(row)
+		g.Description, g.Notes, g.SteamAppID, g.TimeToBeatMinutes, norm)
+	created, err := scanGame(row)
+	if isUniqueViolation(err) {
+		// Lost a race — the unique indexes are the backstop. Re-query to
+		// report the existing card instead of a raw constraint error.
+		if existing, findErr := s.findDuplicate(ctx, 0, g, norm); findErr == nil && existing != nil {
+			return nil, &ErrDuplicate{Existing: *existing}
+		}
+		return nil, err
+	}
+	if err != nil {
+		return nil, err
+	}
+	return created, nil
 }
 
 // Update overwrites a game by id and returns the updated row.
+// Returns *ErrDuplicate when the new title or Steam app id collides with
+// another card (a game may only appear once).
 func (s *Store) Update(ctx context.Context, id int64, g *model.Game) (*model.Game, error) {
+	norm := normalizeTitle(g.Title)
+	existing, err := s.findDuplicate(ctx, id, g, norm)
+	if err != nil {
+		return nil, err
+	}
+	if existing != nil {
+		return nil, &ErrDuplicate{Existing: *existing}
+	}
+
 	// COALESCE: a PUT that omits time_to_beat_minutes (or sends null)
 	// keeps the stored value instead of wiping it — no caller clears
 	// the field today, and a failed HLTB refresh shouldn't erase a
@@ -182,12 +265,23 @@ func (s *Store) Update(ctx context.Context, id int64, g *model.Game) (*model.Gam
 		    genre = $6, cover_url = $7, description = $8, notes = $9,
 		    steam_appid = $10,
 		    time_to_beat_minutes = COALESCE($11, time_to_beat_minutes),
+		    normalized_title = $12,
 		    updated_at = now()
-		WHERE id = $12
+		WHERE id = $13
 		RETURNING `+gameCols,
 		g.Title, g.Status, g.Rating, g.Platform, g.Year, g.Genre, g.CoverURL,
-		g.Description, g.Notes, g.SteamAppID, g.TimeToBeatMinutes, id)
-	return scanGame(row)
+		g.Description, g.Notes, g.SteamAppID, g.TimeToBeatMinutes, norm, id)
+	updated, err := scanGame(row)
+	if isUniqueViolation(err) {
+		if existing, findErr := s.findDuplicate(ctx, id, g, norm); findErr == nil && existing != nil {
+			return nil, &ErrDuplicate{Existing: *existing}
+		}
+		return nil, err
+	}
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
 }
 
 // Delete removes a game; returns pgx.ErrNoRows if it didn't exist.
