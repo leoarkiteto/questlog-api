@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"questlog/internal/model"
+	"questlog-api/internal/model"
 )
 
 func TestNormalizeTitle(t *testing.T) {

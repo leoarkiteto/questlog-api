@@ -10,7 +10,7 @@ import (
 	"os"
 	"time"
 
-	"questlog/internal/repo"
+	"github.com/leoarkiteto/questlog-api/internal/repo"
 )
 
 func main() {

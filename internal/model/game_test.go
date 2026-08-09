@@ -24,14 +24,14 @@ func TestGameValidate(t *testing.T) {
 	}
 
 	cases := []struct {
-		name string
 		mut  func(*Game)
+		name string
 	}{
-		{"empty title", func(g *Game) { g.Title = "  " }},
-		{"bad status", func(g *Game) { g.Status = "owned" }},
-		{"rating too high", func(g *Game) { g.Rating = 6 }},
-		{"negative rating", func(g *Game) { g.Rating = -1 }},
-		{"year too old", func(g *Game) { g.Year = intPtr(1900) }},
+		{func(g *Game) { g.Title = "  " }, "empty title"},
+		{func(g *Game) { g.Status = "owned" }, "bad status"},
+		{func(g *Game) { g.Rating = 6 }, "rating too high"},
+		{func(g *Game) { g.Rating = -1 }, "negative rating"},
+		{func(g *Game) { g.Year = intPtr(1900) }, "year too old"},
 	}
 	for _, tc := range cases {
 		g := base

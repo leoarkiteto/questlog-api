@@ -1,3 +1,5 @@
+// Package igdb is an API layer
+// to get data when is not available on Steam API
 package igdb
 
 import (
@@ -23,15 +25,14 @@ const (
 // Twitch app credentials (Client-ID + Client-Secret). It is the
 // fallback catalog for games that aren't on Steam (Switch, PS5…).
 type Client struct {
+	tokenExpiry  time.Time
 	http         *http.Client
 	clientID     string
 	clientSecret string
 	base         string
 	tokenURL     string
-
-	mu          sync.Mutex
-	token       string
-	tokenExpiry time.Time
+	token        string
+	mu           sync.Mutex
 }
 
 // New returns an IGDB client. When either credential is empty the
@@ -58,9 +59,9 @@ func (c *Client) Enabled() bool { return c.clientID != "" && c.clientSecret != "
 
 // SearchResult is one match from IGDB search.
 type SearchResult struct {
-	AppID    int64  `json:"appid"`
 	Name     string `json:"name"`
-	Platform string `json:"platform"` // first platform found, "" if none
+	Platform string `json:"platform"`
+	AppID    int64  `json:"appid"`
 }
 
 // Search looks up games by name via IGDB's fuzzy search.
@@ -78,11 +79,11 @@ func (c *Client) Search(ctx context.Context, term string, limit int) ([]SearchRe
 	)
 
 	var raw []struct {
-		ID        int64  `json:"id"`
 		Name      string `json:"name"`
 		Platforms []struct {
 			Name string `json:"name"`
 		} `json:"platforms"`
+		ID int64 `json:"id"`
 	}
 	if err := c.postGames(ctx, body, &raw); err != nil {
 		return nil, err
@@ -104,13 +105,13 @@ func (c *Client) Search(ctx context.Context, term string, limit int) ([]SearchRe
 
 // AppDetails is the enriched data we expose for one IGDB game.
 type AppDetails struct {
-	AppID       int64  `json:"appid"`
+	Year        *int   `json:"year"`
 	Name        string `json:"name"`
 	CoverURL    string `json:"coverUrl"`
-	Year        *int   `json:"year"`
 	Genre       string `json:"genre"`
 	Platform    string `json:"platform"`
 	Description string `json:"description"`
+	AppID       int64  `json:"appid"`
 }
 
 // AppDetails fetches one game's full record.
@@ -121,11 +122,9 @@ func (c *Client) AppDetails(ctx context.Context, appID int64) (*AppDetails, erro
 	)
 
 	var raw []struct {
-		ID                int64  `json:"id"`
-		Name              string `json:"name"`
-		Summary           string `json:"summary"`
-		FirstReleaseDate  int64  `json:"first_release_date"`
-		Cover             struct {
+		Name    string `json:"name"`
+		Summary string `json:"summary"`
+		Cover   struct {
 			URL string `json:"url"`
 		} `json:"cover"`
 		Platforms []struct {
@@ -134,6 +133,8 @@ func (c *Client) AppDetails(ctx context.Context, appID int64) (*AppDetails, erro
 		Genres []struct {
 			Name string `json:"name"`
 		} `json:"genres"`
+		ID               int64 `json:"id"`
+		FirstReleaseDate int64 `json:"first_release_date"`
 	}
 	if err := c.postGames(ctx, body, &raw); err != nil {
 		return nil, err
@@ -205,7 +206,12 @@ func (c *Client) postGames(ctx context.Context, body string, dst any) error {
 }
 
 func (c *Client) post(ctx context.Context, body, token string) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/games", bytes.NewBufferString(body))
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		c.base+"/games",
+		bytes.NewBufferString(body),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +236,12 @@ func (c *Client) bearerToken(ctx context.Context) (string, error) {
 		"client_secret": {c.clientSecret},
 		"grant_type":    {"client_credentials"},
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.tokenURL, strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		c.tokenURL,
+		strings.NewReader(form.Encode()),
+	)
 	if err != nil {
 		return "", err
 	}
@@ -256,10 +267,7 @@ func (c *Client) bearerToken(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("igdb token response missing access_token")
 	}
 	// Refresh a bit early to avoid mid-call expiry.
-	lifetime := tok.ExpiresIn - 60
-	if lifetime < 60 {
-		lifetime = 60
-	}
+	lifetime := max(tok.ExpiresIn-60, 60)
 	c.token = tok.AccessToken
 	c.tokenExpiry = time.Now().Add(time.Duration(lifetime) * time.Second)
 	return c.token, nil

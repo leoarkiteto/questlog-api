@@ -1,3 +1,5 @@
+// Package model is shaping the struct
+// based on our Database schema
 package model
 
 import (
@@ -19,7 +21,13 @@ const (
 )
 
 // AllStatuses lists every valid status, in display order.
-var AllStatuses = []Status{StatusWishlist, StatusPurchased, StatusPlaying, StatusPlayed, StatusDropped}
+var AllStatuses = []Status{
+	StatusWishlist,
+	StatusPurchased,
+	StatusPlaying,
+	StatusPlayed,
+	StatusDropped,
+}
 
 func (s Status) Valid() bool {
 	switch s {
@@ -48,20 +56,20 @@ func (s Status) Display() string {
 
 // Game is a single entry in the collection.
 type Game struct {
-	ID                int64     `json:"id"`
-	Title             string    `json:"title"`
-	Status            Status    `json:"status"`
-	Rating            int       `json:"rating"` // 0 = unrated, 1..5 stars
-	Platform          string    `json:"platform"`
+	UpdatedAt         time.Time `json:"updatedAt"`
+	CreatedAt         time.Time `json:"createdAt"`
 	Year              *int      `json:"year"`
+	TimeToBeatMinutes *int      `json:"timeToBeatMinutes"`
+	SteamAppID        *int64    `json:"steamAppId"`
+	Notes             string    `json:"notes"`
 	Genre             string    `json:"genre"`
 	CoverURL          string    `json:"coverUrl"`
 	Description       string    `json:"description"`
-	Notes             string    `json:"notes"`
-	SteamAppID        *int64    `json:"steamAppId"`
-	TimeToBeatMinutes *int      `json:"timeToBeatMinutes"` // HowLongToBeat main story
-	CreatedAt         time.Time `json:"createdAt"`
-	UpdatedAt         time.Time `json:"updatedAt"`
+	Platform          string    `json:"platform"`
+	Status            Status    `json:"status"`
+	Title             string    `json:"title"`
+	ID                int64     `json:"id"`
+	Rating            int       `json:"rating"`
 }
 
 // Validate checks the fields supplied by the client.
@@ -70,7 +78,10 @@ func (g *Game) Validate() error {
 		return errors.New("title is required")
 	}
 	if !g.Status.Valid() {
-		return fmt.Errorf("invalid status %q (must be one of: wishlist, purchased, playing, played, dropped)", g.Status)
+		return fmt.Errorf(
+			"invalid status %q (must be one of: wishlist, purchased, playing, played, dropped)",
+			g.Status,
+		)
 	}
 	if g.Rating < 0 || g.Rating > 5 {
 		return errors.New("rating must be between 0 and 5")

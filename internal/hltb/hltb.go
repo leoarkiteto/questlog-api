@@ -33,13 +33,12 @@ const (
 
 // Client talks to HowLongToBeat's search API. It needs no API key.
 type Client struct {
-	http *http.Client
-
+	http   *http.Client
+	token  string
+	hpKey  string
+	hpVal  string
 	mu     sync.Mutex
-	token  string // signed search token from /api/bleed/init
-	hpKey  string // signed anti-bot key, sent as x-hp-key header + body field
-	hpVal  string // signed anti-bot value, sent as x-hp-val header + body field
-	warmed bool   // homepage cookies have been fetched
+	warmed bool
 }
 
 // New returns a client. The first search warms the session (homepage
@@ -52,8 +51,8 @@ func New() *Client {
 
 // Result is the "how long to beat" data for one game.
 type Result struct {
+	TimeToBeatMinutes *int
 	Name              string
-	TimeToBeatMinutes *int // main-story completion time, nil when unknown
 }
 
 // Search looks up a game by title and returns the community main-story
@@ -71,8 +70,8 @@ func (c *Client) Search(ctx context.Context, title string) (*Result, error) {
 	}
 
 	var res struct {
-		Count int     `json:"count"`
 		Data  []entry `json:"data"`
+		Count int     `json:"count"`
 	}
 	if err := json.Unmarshal(body, &res); err != nil {
 		return nil, fmt.Errorf("decode hltb response: %w", err)
@@ -87,9 +86,9 @@ func (c *Client) Search(ctx context.Context, title string) (*Result, error) {
 
 // entry is one game row in HLTB's search response.
 type entry struct {
-	ID          int64  `json:"game_id"`
 	Name        string `json:"game_name"`
-	Type        string `json:"game_type"` // "game" | "dlc" | ...
+	Type        string `json:"game_type"`
+	ID          int64  `json:"game_id"`
 	MainSeconds int64  `json:"comp_main"`
 }
 
@@ -158,15 +157,20 @@ func (c *Client) doSearch(ctx context.Context, terms []string) (*http.Response, 
 				"userId": 0, "platform": "", "sortCategory": "popular",
 				"rangeCategory": "main",
 				"rangeTime":     map[string]int{"min": 0, "max": 0},
-				"gameplay":      map[string]string{"perspective": "", "flow": "", "genre": "", "difficulty": ""},
-				"rangeYear":     map[string]int{"min": 0, "max": 0},
-				"modifier":      "",
+				"gameplay": map[string]string{
+					"perspective": "",
+					"flow":        "",
+					"genre":       "",
+					"difficulty":  "",
+				},
+				"rangeYear": map[string]int{"min": 0, "max": 0},
+				"modifier":  "",
 			},
-			"users":       map[string]string{"sortCategory": "most"},
-			"lists":       map[string]string{"sortCategory": "most"},
-			"filter":      "",
-			"sort":        0,
-			"randomizer":  0,
+			"users":      map[string]string{"sortCategory": "most"},
+			"lists":      map[string]string{"sortCategory": "most"},
+			"filter":     "",
+			"sort":       0,
+			"randomizer": 0,
 		},
 		"useCache": false,
 	}
@@ -176,7 +180,12 @@ func (c *Client) doSearch(ctx context.Context, terms []string) (*http.Response, 
 	if err != nil {
 		return nil, nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/api/bleed", bytes.NewReader(reqBody))
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		base+"/api/bleed",
+		bytes.NewReader(reqBody),
+	)
 	if err != nil {
 		return nil, nil, err
 	}

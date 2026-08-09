@@ -1,3 +1,4 @@
+// Package api
 package api
 
 import (
@@ -11,9 +12,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"questlog/internal/catalog"
-	"questlog/internal/model"
-	"questlog/internal/repo"
+	"questlog-api/internal/catalog"
+	"questlog-api/internal/model"
+	"questlog-api/internal/repo"
 )
 
 // Server holds dependencies for the HTTP API.
@@ -63,7 +64,13 @@ func (s *Server) logMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		next.ServeHTTP(w, r)
-		log.Printf("%s %s %s (%s)", r.Method, r.URL.Path, r.RemoteAddr, time.Since(start).Round(time.Millisecond))
+		log.Printf(
+			"%s %s %s (%s)",
+			r.Method,
+			r.URL.Path,
+			r.RemoteAddr,
+			time.Since(start).Round(time.Millisecond),
+		)
 	})
 }
 
@@ -71,7 +78,11 @@ func (s *Server) logMiddleware(next http.Handler) http.Handler {
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.Ping(r.Context()); err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "degraded", "error": err.Error()})
+		writeJSON(
+			w,
+			http.StatusServiceUnavailable,
+			map[string]string{"status": "degraded", "error": err.Error()},
+		)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -82,7 +93,11 @@ func (s *Server) handleListGames(w http.ResponseWriter, r *http.Request) {
 	if raw := r.URL.Query().Get("status"); raw != "" {
 		st := model.Status(raw)
 		if !st.Valid() {
-			writeError(w, http.StatusBadRequest, "invalid status filter (use wishlist, purchased, playing, played, dropped)")
+			writeError(
+				w,
+				http.StatusBadRequest,
+				"invalid status filter (use wishlist, purchased, playing, played, dropped)",
+			)
 			return
 		}
 		status = &st
@@ -191,8 +206,11 @@ func (s *Server) handleDeleteGame(w http.ResponseWriter, r *http.Request) {
 // already in the collection, and the fix is to edit that card's list
 // rather than create a second card.
 func duplicateMessage(dup *repo.ErrDuplicate) string {
-	return fmt.Sprintf("%q is already in your collection as %s — edit that card to change its list.",
-		dup.Existing.Title, dup.Existing.Status.Display())
+	return fmt.Sprintf(
+		"%q is already in your collection as %s — edit that card to change its list.",
+		dup.Existing.Title,
+		dup.Existing.Status.Display(),
+	)
 }
 
 func gameID(w http.ResponseWriter, r *http.Request) (int64, bool) {

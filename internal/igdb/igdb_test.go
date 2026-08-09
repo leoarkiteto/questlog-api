@@ -74,12 +74,9 @@ const detailJSON = `[
 func TestCoverURLNormalizesAnySizeToken(t *testing.T) {
 	cases := map[string]string{
 		"": "",
-		"//images.igdb.com/igdb/image/upload/t_thumb/co5vmg.jpg":
-			"https://images.igdb.com/igdb/image/upload/t_cover_big_2x/co5vmg.jpg",
-		"//images.igdb.com/igdb/image/upload/t_cover_big/co1p4m.jpg":
-			"https://images.igdb.com/igdb/image/upload/t_cover_big_2x/co1p4m.jpg",
-		"https://cdn.example.com/custom/art.png":
-			"https://cdn.example.com/custom/art.png", // no size token: untouched
+		"//images.igdb.com/igdb/image/upload/t_thumb/co5vmg.jpg":     "https://images.igdb.com/igdb/image/upload/t_cover_big_2x/co5vmg.jpg",
+		"//images.igdb.com/igdb/image/upload/t_cover_big/co1p4m.jpg": "https://images.igdb.com/igdb/image/upload/t_cover_big_2x/co1p4m.jpg",
+		"https://cdn.example.com/custom/art.png":                     "https://cdn.example.com/custom/art.png", // no size token: untouched
 	}
 	for in, want := range cases {
 		if got := coverURL(in); got != want {
@@ -186,7 +183,7 @@ func TestTokenCaching(t *testing.T) {
 	defer srv2.Close()
 
 	c := New("cid", "secret", srv2.URL, srv2.URL+"/oauth2/token")
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if _, err := c.Search(context.Background(), "zelda", 6); err != nil {
 			t.Fatalf("search %d: %v", i, err)
 		}

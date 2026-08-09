@@ -1,4 +1,4 @@
-module questlog
+module github.com/leoakiteto/questlog-api
 
 go 1.23.0
 

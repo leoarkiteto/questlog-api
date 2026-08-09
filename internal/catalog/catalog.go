@@ -1,3 +1,4 @@
+// Package catalog
 package catalog
 
 import (
@@ -9,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"questlog/internal/hltb"
-	"questlog/internal/igdb"
-	"questlog/internal/steam"
+	"questlog-api/internal/hltb"
+	"questlog-api/internal/igdb"
+	"questlog-api/internal/steam"
 )
 
 // Service combines Steam (primary) and IGDB (fallback for non-Steam
@@ -30,10 +31,10 @@ func New(steamClient *steam.Client, igdbClient *igdb.Client, hltbClient *hltb.Cl
 
 // Result is one suggestion row in the merged search list.
 type Result struct {
-	Source   string `json:"source"` // "steam" | "igdb"
-	AppID    int64  `json:"appid"`
+	Source   string `json:"source"`
 	Name     string `json:"name"`
-	Platform string `json:"platform,omitempty"` // IGDB platform hint
+	Platform string `json:"platform,omitempty"`
+	AppID    int64  `json:"appid"`
 }
 
 // Search queries Steam and IGDB (when configured) in parallel and
@@ -68,7 +69,7 @@ func (s *Service) Search(ctx context.Context, q string) []Result {
 	}()
 
 	results := []Result{}
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		o := <-ch
 		results = append(results, o.items...)
 	}
@@ -101,17 +102,17 @@ func mergeResults(steamResults, igdbResults []Result, q string) []Result {
 // Details is the enriched data for one catalog entry, whichever source
 // it came from.
 type Details struct {
+	Year              *int     `json:"year"`
+	Metacritic        *int     `json:"metacritic,omitempty"`
+	TimeToBeatMinutes *int     `json:"timeToBeatMinutes,omitempty"`
 	Source            string   `json:"source"`
-	AppID             int64    `json:"appid"`
 	Name              string   `json:"name"`
 	CoverURL          string   `json:"coverUrl"`
-	Year              *int     `json:"year"`
 	Genre             string   `json:"genre"`
 	Platform          string   `json:"platform"`
 	Description       string   `json:"description"`
 	Developers        []string `json:"developers,omitempty"`
-	Metacritic        *int     `json:"metacritic,omitempty"`
-	TimeToBeatMinutes *int     `json:"timeToBeatMinutes,omitempty"` // HowLongToBeat main story
+	AppID             int64    `json:"appid"`
 }
 
 // Details resolves a single catalog entry by source + id.
@@ -131,7 +132,9 @@ func (s *Service) Details(ctx context.Context, source string, appID int64) (*Det
 
 	case "igdb":
 		if s.igdb == nil || !s.igdb.Enabled() {
-			return nil, errors.New("igdb is not configured (set IGDB_CLIENT_ID and IGDB_CLIENT_SECRET)")
+			return nil, errors.New(
+				"igdb is not configured (set IGDB_CLIENT_ID and IGDB_CLIENT_SECRET)",
+			)
 		}
 		d, err := s.igdb.AppDetails(ctx, appID)
 		if err != nil {

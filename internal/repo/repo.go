@@ -1,3 +1,4 @@
+// Package repo is shaping ourt DB queries
 package repo
 
 import (
@@ -12,7 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"questlog/internal/model"
+	"questlog-api/internal/model"
 )
 
 //go:embed migrations/*.sql
@@ -123,7 +124,12 @@ type ErrDuplicate struct {
 }
 
 func (e *ErrDuplicate) Error() string {
-	return fmt.Sprintf("game %q already exists (id %d, status %s)", e.Existing.Title, e.Existing.ID, e.Existing.Status)
+	return fmt.Sprintf(
+		"game %q already exists (id %d, status %s)",
+		e.Existing.Title,
+		e.Existing.ID,
+		e.Existing.Status,
+	)
 }
 
 // normalizeTitle reduces a title to its comparison key: lowercase,
@@ -144,7 +150,12 @@ func isUniqueViolation(err error) bool {
 // findDuplicate returns the first card that would collide with g: same
 // normalized title, or same non-null Steam app id. excludeID skips the
 // card being updated. Returns nil when there is no conflict.
-func (s *Store) findDuplicate(ctx context.Context, excludeID int64, g *model.Game, norm string) (*model.Game, error) {
+func (s *Store) findDuplicate(
+	ctx context.Context,
+	excludeID int64,
+	g *model.Game,
+	norm string,
+) (*model.Game, error) {
 	row := s.pool.QueryRow(ctx, `
 		SELECT `+gameCols+` FROM games
 		WHERE id <> $1
@@ -231,7 +242,8 @@ func (s *Store) Create(ctx context.Context, g *model.Game) (*model.Game, error) 
 	if isUniqueViolation(err) {
 		// Lost a race — the unique indexes are the backstop. Re-query to
 		// report the existing card instead of a raw constraint error.
-		if existing, findErr := s.findDuplicate(ctx, 0, g, norm); findErr == nil && existing != nil {
+		if existing, findErr := s.findDuplicate(ctx, 0, g, norm); findErr == nil &&
+			existing != nil {
 			return nil, &ErrDuplicate{Existing: *existing}
 		}
 		return nil, err
@@ -273,7 +285,8 @@ func (s *Store) Update(ctx context.Context, id int64, g *model.Game) (*model.Gam
 		g.Description, g.Notes, g.SteamAppID, g.TimeToBeatMinutes, norm, id)
 	updated, err := scanGame(row)
 	if isUniqueViolation(err) {
-		if existing, findErr := s.findDuplicate(ctx, id, g, norm); findErr == nil && existing != nil {
+		if existing, findErr := s.findDuplicate(ctx, id, g, norm); findErr == nil &&
+			existing != nil {
 			return nil, &ErrDuplicate{Existing: *existing}
 		}
 		return nil, err

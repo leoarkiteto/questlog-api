@@ -1,3 +1,5 @@
+// Package steam is an API layer to get
+// data from Steam API
 package steam
 
 import (
@@ -34,8 +36,8 @@ func New(apiKey string) *Client {
 
 // SearchResult is one match from Steam's app search.
 type SearchResult struct {
-	AppID int64  `json:"appid"`
 	Name  string `json:"name"`
+	AppID int64  `json:"appid"`
 }
 
 // Search looks up apps by name via Steam's search suggestions endpoint.
@@ -87,15 +89,15 @@ func (c *Client) Search(ctx context.Context, term string) ([]SearchResult, error
 
 // AppDetails is the enriched data we expose for one Steam app.
 type AppDetails struct {
-	AppID      int64    `json:"appid"`
-	Name       string   `json:"name"`
-	CoverURL   string   `json:"coverUrl"`
-	Year       *int     `json:"year"`
-	Genre      string   `json:"genre"`
-	Platform   string   `json:"platform"`
-	Description string  `json:"description"`
-	Developers []string `json:"developers"`
-	Metacritic *int     `json:"metacritic"`
+	Year        *int     `json:"year"`
+	Metacritic  *int     `json:"metacritic"`
+	Name        string   `json:"name"`
+	CoverURL    string   `json:"coverUrl"`
+	Genre       string   `json:"genre"`
+	Platform    string   `json:"platform"`
+	Description string   `json:"description"`
+	Developers  []string `json:"developers"`
+	AppID       int64    `json:"appid"`
 }
 
 // AppDetails fetches the Steam store page for an app and maps it to
@@ -108,28 +110,28 @@ func (c *Client) AppDetails(ctx context.Context, appID int64) (*AppDetails, erro
 	}
 
 	var raw map[string]struct {
-		Success bool `json:"success"`
-		Data    struct {
-			Name            string `json:"name"`
-			SteamAppID      int64  `json:"steam_appid"`
-			HeaderImage     string `json:"header_image"`
+		Data struct {
+			Name             string `json:"name"`
+			HeaderImage      string `json:"header_image"`
 			ShortDescription string `json:"short_description"`
-			ReleaseDate     struct {
+			ReleaseDate      struct {
 				Date string `json:"date"`
 			} `json:"release_date"`
+			Genres []struct {
+				Description string `json:"description"`
+			} `json:"genres"`
+			Developers []string `json:"developers"`
+			SteamAppID int64    `json:"steam_appid"`
+			Metacritic struct {
+				Score int `json:"score"`
+			} `json:"metacritic"`
 			Platforms struct {
 				Windows bool `json:"windows"`
 				Mac     bool `json:"mac"`
 				Linux   bool `json:"linux"`
 			} `json:"platforms"`
-			Genres []struct {
-				Description string `json:"description"`
-			} `json:"genres"`
-			Developers []string `json:"developers"`
-			Metacritic struct {
-				Score int `json:"score"`
-			} `json:"metacritic"`
 		} `json:"data"`
+		Success bool `json:"success"`
 	}
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return nil, fmt.Errorf("decode steam appdetails: %w", err)
