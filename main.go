@@ -7,13 +7,13 @@ import (
 	"os"
 	"time"
 
-	"questlog/internal/api"
-	"questlog/internal/catalog"
-	"questlog/internal/config"
-	"questlog/internal/hltb"
-	"questlog/internal/igdb"
-	"questlog/internal/repo"
-	"questlog/internal/steam"
+	"github.com/leoarkiteto/questlog-api/internal/api"
+	"github.com/leoarkiteto/questlog-api/internal/catalog"
+	"github.com/leoarkiteto/questlog-api/internal/config"
+	"github.com/leoarkiteto/questlog-api/internal/hltb"
+	"github.com/leoarkiteto/questlog-api/internal/igdb"
+	"github.com/leoarkiteto/questlog-api/internal/repo"
+	"github.com/leoarkiteto/questlog-api/internal/steam"
 )
 
 func main() {
@@ -22,7 +22,7 @@ func main() {
 		log.Printf("warning: could not load .env: %v", err)
 	}
 
-	dbURL := getenv("DATABASE_URL", "postgres://gamelog@localhost:5432/gamelog")
+	dbURL := getenv("DATABASE_URL", "postgres://gamelog:gamelog@localhost:5432/gamelog")
 	port := getenv("PORT", "8080")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

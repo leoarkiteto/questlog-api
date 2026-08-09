@@ -13,7 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"questlog-api/internal/model"
+	"github.com/leoarkiteto/questlog-api/internal/model"
 )
 
 //go:embed migrations/*.sql

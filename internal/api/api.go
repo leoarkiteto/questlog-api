@@ -12,9 +12,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"questlog-api/internal/catalog"
-	"questlog-api/internal/model"
-	"questlog-api/internal/repo"
+	"github.com/leoarkiteto/questlog-api/internal/catalog"
+	"github.com/leoarkiteto/questlog-api/internal/model"
+	"github.com/leoarkiteto/questlog-api/internal/repo"
 )
 
 // Server holds dependencies for the HTTP API.

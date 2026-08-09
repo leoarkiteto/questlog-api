@@ -16,7 +16,7 @@ import (
 func main() {
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
-		dbURL = "postgres://gamelog@localhost:5432/gamelog"
+		dbURL = "postgres://gamelog:gamelog@localhost:5432/gamelog"
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

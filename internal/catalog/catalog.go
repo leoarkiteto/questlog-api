@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"questlog-api/internal/hltb"
-	"questlog-api/internal/igdb"
-	"questlog-api/internal/steam"
+	"github.com/leoarkiteto/questlog-api/internal/hltb"
+	"github.com/leoarkiteto/questlog-api/internal/igdb"
+	"github.com/leoarkiteto/questlog-api/internal/steam"
 )
 
 // Service combines Steam (primary) and IGDB (fallback for non-Steam
