@@ -1,6 +1,8 @@
 package web
 
 import (
+	"fmt"
+
 	"github.com/leoarkiteto/questlog-api/internal/model"
 )
 
@@ -11,7 +13,7 @@ templ LibraryPage(v LibraryView) {
 		<div class="mb-4 flex items-center justify-between">
 			<h1 class="text-xl font-bold text-zinc-100">Library</h1>
 			<div class="flex items-center gap-3">
-				<span class="text-xs text-zinc-500">{ len(v.Games) } games</span>
+				<span class="text-xs text-zinc-500">{ v.FilteredCount } games</span>
 				<button onclick="qlOpenFilter()"
 					class={ "flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium transition " + filterButtonClass(v.ActiveCount) }>
 					@Icon("sliders", "h-3.5 w-3.5")
@@ -27,14 +29,33 @@ templ LibraryPage(v LibraryView) {
 			@EmptyState(emptyTitle(v.ActiveCount), "Games you add will show up here, organized by status.", "/games/new", "Add a game")
 		} else {
 			<div class="grid grid-cols-3 gap-x-3 gap-y-5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
-				for _, g := range v.Games {
-					@GameCard(g, "w-full", g.Status == model.StatusPlaying)
-				}
+				@LibraryCards(v.Games, v.NextPage, v.HasMore, v.Filter, v.Platform, v.Sort)
 			</div>
 		}
 
 		@FilterPanel(v)
 	</div>
+}
+
+// LibraryCards renders one page of library cards plus a "load more"
+// sentinel. The sentinel fires when it scrolls into view
+// (hx-trigger="revealed") and replaces itself with the next page
+// (hx-swap="outerHTML"), so each page appends its cards and a fresh
+// sentinel; the final page has no sentinel. It sends a custom header so
+// the handler can tell it apart from hx-boost navigations (which also
+// send HX-Request but expect a full document).
+templ LibraryCards(games []model.Game, nextPage int, hasMore bool, filter string, platform string, sortKey string) {
+	for _, g := range games {
+		@GameCard(g, "w-full", g.Status == model.StatusPlaying)
+	}
+	if hasMore {
+		<div hx-get={ libraryGridURL(filter, platform, sortKey, nextPage) }
+			hx-trigger="revealed"
+			hx-target="this"
+			hx-swap="outerHTML"
+			hx-headers={ fmt.Sprintf(`{"%s": "1"}`, loadMoreHeader) }
+			class="col-span-full h-4"></div>
+	}
 }
 
 // FilterPanel is the slide-over with status/platform/sort controls.

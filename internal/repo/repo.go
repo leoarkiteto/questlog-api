@@ -213,6 +213,122 @@ func (s *Store) List(ctx context.Context, status *model.Status) ([]model.Game, e
 	return games, rows.Err()
 }
 
+// ListPage returns one page of games matching the library filters, plus
+// whether more rows exist beyond it. sortKey is "recent" (default),
+// "title", or "rating". limit/offset paginate; LIMIT is fetched as
+// limit+1 so hasMore is decided without a second query.
+func (s *Store) ListPage(
+	ctx context.Context,
+	status *model.Status,
+	platform, sortKey string,
+	limit, offset int,
+) ([]model.Game, bool, error) {
+	q := `SELECT ` + gameCols + ` FROM games`
+	var conds []string
+	var args []any
+	if status != nil {
+		args = append(args, *status)
+		conds = append(conds, fmt.Sprintf("status = $%d", len(args)))
+	}
+	if platform != "" {
+		args = append(args, platform)
+		conds = append(conds, fmt.Sprintf("platform = $%d", len(args)))
+	}
+	if len(conds) > 0 {
+		q += ` WHERE ` + strings.Join(conds, " AND ")
+	}
+	switch sortKey {
+	case "title":
+		q += ` ORDER BY lower(title) ASC, id ASC`
+	case "rating":
+		q += ` ORDER BY rating DESC, lower(title) ASC, id ASC`
+	default:
+		q += ` ORDER BY created_at DESC, id DESC`
+	}
+	args = append(args, limit+1, offset)
+	q += fmt.Sprintf(` LIMIT $%d OFFSET $%d`, len(args)-1, len(args))
+
+	rows, err := s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, false, err
+	}
+	defer rows.Close()
+
+	games := []model.Game{}
+	for rows.Next() {
+		g, err := scanGame(rows)
+		if err != nil {
+			return nil, false, err
+		}
+		games = append(games, *g)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+	hasMore := len(games) > limit
+	if hasMore {
+		games = games[:limit]
+	}
+	return games, hasMore, nil
+}
+
+// Count returns the total number of games in the collection.
+func (s *Store) Count(ctx context.Context) (int, error) {
+	var n int
+	err := s.pool.QueryRow(ctx, `SELECT count(*) FROM games`).Scan(&n)
+	return n, err
+}
+
+// CountFiltered returns how many games match the library status/platform
+// filters (used for the "N games" label, which must not be the page size).
+func (s *Store) CountFiltered(ctx context.Context, status *model.Status, platform string) (int, error) {
+	q := `SELECT count(*) FROM games`
+	var conds []string
+	var args []any
+	if status != nil {
+		args = append(args, *status)
+		conds = append(conds, fmt.Sprintf("status = $%d", len(args)))
+	}
+	if platform != "" {
+		args = append(args, platform)
+		conds = append(conds, fmt.Sprintf("platform = $%d", len(args)))
+	}
+	if len(conds) > 0 {
+		q += ` WHERE ` + strings.Join(conds, " AND ")
+	}
+	var n int
+	err := s.pool.QueryRow(ctx, q, args...).Scan(&n)
+	return n, err
+}
+
+// PlatformCounts returns the distinct non-empty platforms and how many
+// games each has, for the library filter panel.
+func (s *Store) PlatformCounts(ctx context.Context) ([]string, map[string]int, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT platform, count(*)
+		FROM games
+		WHERE platform <> ''
+		GROUP BY platform
+		ORDER BY platform`)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	platforms := []string{}
+	counts := map[string]int{}
+	for rows.Next() {
+		var p string
+		var n int
+		if err := rows.Scan(&p, &n); err != nil {
+			return nil, nil, err
+		}
+		platforms = append(platforms, p)
+		counts[p] = n
+	}
+	return platforms, counts, rows.Err()
+}
+
 // Get returns a single game by id, or pgx.ErrNoRows.
 func (s *Store) Get(ctx context.Context, id int64) (*model.Game, error) {
 	return scanGame(s.pool.QueryRow(ctx,

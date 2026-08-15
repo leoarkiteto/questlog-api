@@ -58,7 +58,7 @@ render.yaml                # Render Blueprint (service + health check)
 
 ```
 GET    /                                            dashboard (hero + status rows)
-GET    /library?filter=&platform=&sort=             server-side filtered/sorted grid
+GET    /library?filter=&platform=&sort=&page=   filtered/sorted grid, 24/page + HTMX "load more" sentinel
 GET    /search?q=                                   search the collection
 GET    /games/new                                   add form
 POST   /games                                       create

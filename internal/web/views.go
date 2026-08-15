@@ -3,6 +3,8 @@ package web
 import (
 	"fmt"
 	"net/url"
+	"strconv"
+	"strings"
 
 	"github.com/leoarkiteto/questlog-api/internal/model"
 )
@@ -21,14 +23,17 @@ type DashboardView struct {
 
 // LibraryView is the library page model (server-side filter/sort).
 type LibraryView struct {
-	Games       []model.Game
-	Platforms   []string
-	Counts      map[string]int
-	Total       int
-	Filter      string // status value or "all"
-	Platform    string // selected platform, "" = all
-	Sort        string // "recent" | "title" | "rating"
-	ActiveCount int
+	Games         []model.Game
+	Platforms     []string
+	Counts        map[string]int
+	Total         int
+	FilteredCount int // games matching the current filter/platform (label)
+	Filter        string // status value or "all"
+	Platform      string // selected platform, "" = all
+	Sort          string // "recent" | "title" | "rating"
+	ActiveCount   int
+	HasMore       bool // another page exists (renders the load-more sentinel)
+	NextPage      int  // page the sentinel fetches (0 when exhausted)
 }
 
 // SearchView is the search-results page model.
@@ -110,6 +115,19 @@ func libraryURL(filter, platform, sort string) string {
 		return "/library"
 	}
 	return "/library?" + q.Encode()
+}
+
+// libraryGridURL is libraryURL plus the page param for the load-more
+// sentinel. Page 1 keeps the clean URL.
+func libraryGridURL(filter, platform, sort string, page int) string {
+	u := libraryURL(filter, platform, sort)
+	if page <= 1 {
+		return u
+	}
+	if strings.Contains(u, "?") {
+		return u + "&page=" + strconv.Itoa(page)
+	}
+	return u + "?page=" + strconv.Itoa(page)
 }
 
 // sortLabel returns the human label for a library sort key.

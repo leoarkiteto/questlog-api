@@ -79,13 +79,15 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	render(w, r, http.StatusOK, Layout("Questlog — my games", r.URL.Path, "", DashboardPage(view)))
 }
 
-func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
-	games, err := s.store.List(r.Context(), nil)
-	if err != nil {
-		serverError(w, err)
-		return
-	}
+// loadMoreHeader marks the library "load more" sentinel request (plain
+// hx-get). It must be distinct from hx-boost navigations, which also
+// send HX-Request but want the full document (body swap), not a fragment.
+const loadMoreHeader = "X-Questlog-LoadMore"
 
+// libraryPageSize is how many cards each library page renders.
+const libraryPageSize = 24
+
+func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	filter := q.Get("filter")
 	platform := strings.TrimSpace(q.Get("platform"))
@@ -102,9 +104,48 @@ func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
 	if !validSort(sortKey) {
 		sortKey = "recent"
 	}
+	page := queryPage(q.Get("page"))
 
-	platforms, counts := platformSummary(games)
-	shown := filterSortGames(games, filter, platform, sortKey)
+	var status *model.Status
+	if filter != "all" {
+		st := model.Status(filter)
+		status = &st
+	}
+
+	ctx := r.Context()
+	offset := (page - 1) * libraryPageSize
+
+	// "Load more" sentinel: return only the next cards + a fresh sentinel.
+	if r.Header.Get(loadMoreHeader) == "1" {
+		games, hasMore, err := s.store.ListPage(ctx, status, platform, sortKey, libraryPageSize, offset)
+		if err != nil {
+			serverError(w, err)
+			return
+		}
+		renderFragment(w, r, LibraryCards(games, nextLibraryPage(page, hasMore), hasMore, filter, platform, sortKey))
+		return
+	}
+
+	total, err := s.store.Count(ctx)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	filteredCount, err := s.store.CountFiltered(ctx, status, platform)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	platforms, counts, err := s.store.PlatformCounts(ctx)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	games, hasMore, err := s.store.ListPage(ctx, status, platform, sortKey, libraryPageSize, offset)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
 
 	active := 0
 	if filter != "all" {
@@ -118,16 +159,36 @@ func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	view := LibraryView{
-		Games:       shown,
-		Platforms:   platforms,
-		Counts:      counts,
-		Total:       len(games),
-		Filter:      filter,
-		Platform:    platform,
-		Sort:        sortKey,
-		ActiveCount: active,
+		Games:         games,
+		Platforms:     platforms,
+		Counts:        counts,
+		Total:         total,
+		FilteredCount: filteredCount,
+		Filter:        filter,
+		Platform:      platform,
+		Sort:          sortKey,
+		ActiveCount:   active,
+		HasMore:       hasMore,
+		NextPage:      nextLibraryPage(page, hasMore),
 	}
 	render(w, r, http.StatusOK, Layout("Questlog — Library", r.URL.Path, "", LibraryPage(view)))
+}
+
+// queryPage parses the ?page= param, defaulting to 1 and clamping to >= 1.
+func queryPage(s string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil || n < 1 {
+		return 1
+	}
+	return n
+}
+
+// nextLibraryPage returns the page to load next, or 0 when exhausted.
+func nextLibraryPage(page int, hasMore bool) int {
+	if !hasMore {
+		return 0
+	}
+	return page + 1
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
@@ -500,59 +561,6 @@ func relatedGames(ctx context.Context, s *Server, g *model.Game) []model.Game {
 		related = related[:12]
 	}
 	return related
-}
-
-// platformSummary returns the distinct platforms (sorted) and their
-// counts across the whole collection.
-func platformSummary(games []model.Game) ([]string, map[string]int) {
-	seen := map[string]bool{}
-	counts := map[string]int{}
-	for _, g := range games {
-		p := strings.TrimSpace(g.Platform)
-		if p == "" {
-			continue
-		}
-		counts[p]++
-		seen[p] = true
-	}
-	platforms := make([]string, 0, len(seen))
-	for p := range seen {
-		platforms = append(platforms, p)
-	}
-	sort.Strings(platforms)
-	return platforms, counts
-}
-
-// filterSortGames applies the library filter/platform/sort.
-func filterSortGames(games []model.Game, filter, platform, sortKey string) []model.Game {
-	out := make([]model.Game, 0, len(games))
-	for _, g := range games {
-		if filter != "" && filter != "all" && g.Status != model.Status(filter) {
-			continue
-		}
-		if platform != "" && strings.TrimSpace(g.Platform) != platform {
-			continue
-		}
-		out = append(out, g)
-	}
-	switch sortKey {
-	case "title":
-		sort.SliceStable(out, func(i, j int) bool {
-			return strings.ToLower(out[i].Title) < strings.ToLower(out[j].Title)
-		})
-	case "rating":
-		sort.SliceStable(out, func(i, j int) bool {
-			if out[i].Rating != out[j].Rating {
-				return out[i].Rating > out[j].Rating
-			}
-			return strings.ToLower(out[i].Title) < strings.ToLower(out[j].Title)
-		})
-	default:
-		sort.SliceStable(out, func(i, j int) bool {
-			return out[i].CreatedAt.After(out[j].CreatedAt)
-		})
-	}
-	return out
 }
 
 // filterSearch matches a game against title/platform/genre/status.
