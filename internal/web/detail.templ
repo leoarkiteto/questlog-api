@@ -1,0 +1,95 @@
+package web
+
+import (
+	"fmt"
+)
+
+// DetailPage renders a single game: hero, about, notes, related games,
+// and actions.
+templ DetailPage(v DetailView) {
+	<div>
+		<div class="relative">
+			@GameCover(v.Game.Title, v.Game.CoverURL, "h-72 w-full sm:h-96")
+			<div class="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/55 to-zinc-950/20"></div>
+			<div class="absolute inset-x-0 bottom-0 p-5 sm:p-8">
+				<div class="mb-2 flex flex-wrap items-center gap-2">
+					@StatusBadge(v.Game.Status)
+					if v.Game.Genre != "" {
+						<span class="rounded-full bg-white/10 px-2.5 py-1 text-xs font-medium text-zinc-200 backdrop-blur">{ v.Game.Genre }</span>
+					}
+					if v.Game.TimeToBeatMinutes != nil {
+						<span class="rounded-full bg-white/10 px-2.5 py-1 text-xs font-medium text-zinc-200 backdrop-blur">{ formatTimeToBeat(*v.Game.TimeToBeatMinutes) }</span>
+					}
+				</div>
+				<div class="flex items-baseline gap-3">
+					<h1 class="text-3xl font-black tracking-tight text-white drop-shadow sm:text-5xl">{ v.Game.Title }</h1>
+					if v.Game.Platform != "" {
+						@PlatformIcon(v.Game.Platform, "h-4 w-4 shrink-0 text-zinc-400 drop-shadow")
+					}
+				</div>
+
+				if canRate(v.Game.Status) && v.Game.Rating > 0 {
+					<div class="mt-3 flex flex-wrap items-center gap-3">
+						<div class="flex items-center gap-2 rounded-xl bg-black/50 px-3 py-2 backdrop-blur">
+							<span aria-hidden="true">⭐️</span>
+							<span class="text-sm font-semibold text-zinc-100" aria-label={ fmt.Sprintf("Rated %d out of 5", v.Game.Rating) }>
+								<span class="text-lg leading-none">{ v.Game.Rating }</span>
+								<span class="text-xs font-medium text-zinc-400">/5</span>
+							</span>
+						</div>
+					</div>
+				}
+			</div>
+		</div>
+
+		<div class="mx-auto max-w-6xl px-4 pt-6 sm:px-6">
+			if v.Error != "" {
+				<div role="alert" class="mb-6 rounded-lg bg-red-950/50 px-3 py-2.5 text-sm text-red-300 ring-1 ring-red-500/30">{ v.Error }</div>
+			}
+			if v.Game.Description != "" {
+				<section class="mb-10">
+					<h2 class="mb-2 text-xs font-bold uppercase tracking-widest text-zinc-500">About</h2>
+					<p class="max-w-3xl text-sm leading-relaxed text-zinc-300">{ v.Game.Description }</p>
+				</section>
+			}
+
+			<section class="mb-10">
+				<h2 class="mb-2 text-xs font-bold uppercase tracking-widest text-zinc-500">Notes</h2>
+				if v.Game.Notes != "" {
+					<p class="text-sm leading-relaxed whitespace-pre-wrap text-zinc-300">{ v.Game.Notes }</p>
+				} else {
+					<p class="text-sm text-zinc-600">No notes yet.</p>
+				}
+			</section>
+
+			if len(v.Related) > 0 {
+				<section class="mb-10">
+					<h2 class="mb-3 text-lg font-bold text-zinc-100">
+						More Like This{" "}
+						<span class={ "text-sm font-medium " + metaFor(v.Game.Status).Accent }>({ metaFor(v.Game.Status).Label })</span>
+					</h2>
+					<div class="no-scrollbar flex snap-x gap-3 overflow-x-auto pb-2">
+						for _, g := range v.Related {
+							@GameCard(g, "w-32 shrink-0 snap-start sm:w-40", false)
+						}
+					</div>
+				</section>
+			}
+
+			<div class="flex flex-wrap gap-3 border-t border-white/5 pt-6">
+				<form method="post" action={ fmt.Sprintf("/games/%d/enrich", v.Game.ID) }>
+					<button type="submit" class="rounded-full bg-emerald-950 px-5 py-2.5 text-sm font-semibold text-emerald-300 ring-1 ring-emerald-500/30 transition hover:bg-emerald-900">Get cover online</button>
+				</form>
+				<a href={ fmt.Sprintf("/games/%d/edit", v.Game.ID) } class="rounded-full bg-zinc-800 px-5 py-2.5 text-sm font-semibold text-zinc-100 ring-1 ring-white/10 transition hover:bg-zinc-700">Edit</a>
+				<button type="button"
+					hx-post={ fmt.Sprintf("/games/%d/delete", v.Game.ID) }
+					hx-confirm={ fmt.Sprintf("Delete \"%s\" from your Questlog?", v.Game.Title) }
+					hx-target="body"
+					hx-swap="none"
+					class="rounded-full bg-red-950 px-5 py-2.5 text-sm font-semibold text-red-300 ring-1 ring-red-500/30 transition hover:bg-red-900">
+					Delete
+				</button>
+			</div>
+		</div>
+	</div>
+}

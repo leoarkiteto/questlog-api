@@ -1,0 +1,94 @@
+package web
+
+import (
+	"github.com/leoarkiteto/questlog-api/internal/model"
+)
+
+// LibraryPage renders the full grid with a server-side filter slide
+// panel (filter/platform/sort are URL query params).
+templ LibraryPage(v LibraryView) {
+	<div class="px-4 sm:px-6">
+		<div class="mb-4 flex items-center justify-between">
+			<h1 class="text-xl font-bold text-zinc-100">Library</h1>
+			<div class="flex items-center gap-3">
+				<span class="text-xs text-zinc-500">{ len(v.Games) } games</span>
+				<button onclick="qlOpenFilter()"
+					class={ "flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium transition " + filterButtonClass(v.ActiveCount) }>
+					@Icon("sliders", "h-3.5 w-3.5")
+					Filter
+					if v.ActiveCount > 0 {
+						<span class="grid h-4 w-4 place-items-center rounded-full bg-white/20 text-[10px] font-bold">{ v.ActiveCount }</span>
+					}
+				</button>
+			</div>
+		</div>
+
+		if len(v.Games) == 0 {
+			@EmptyState(emptyTitle(v.ActiveCount), "Games you add will show up here, organized by status.", "/games/new", "Add a game")
+		} else {
+			<div class="grid grid-cols-3 gap-x-3 gap-y-5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
+				for _, g := range v.Games {
+					@GameCard(g, "w-full", g.Status == model.StatusPlaying)
+				}
+			</div>
+		}
+
+		@FilterPanel(v)
+	</div>
+}
+
+// FilterPanel is the slide-over with status/platform/sort controls.
+templ FilterPanel(v LibraryView) {
+	<div id="filter-overlay" class="pointer-events-none fixed inset-0 z-50">
+		<div id="filter-backdrop" onclick="qlCloseFilter()" class="absolute inset-0 bg-black/60 opacity-0 backdrop-blur-sm transition-opacity duration-300"></div>
+		<aside id="filter-panel" role="dialog" aria-modal="true" aria-label="Filter library"
+			class="absolute inset-y-0 right-0 flex w-80 max-w-[90vw] translate-x-full flex-col border-l border-white/10 bg-zinc-950 shadow-2xl transition-transform duration-300">
+			<div class="flex items-center justify-between border-b border-white/5 px-5 py-4">
+				<h2 class="text-sm font-bold text-zinc-100">Filters</h2>
+				<button onclick="qlCloseFilter()" aria-label="Close filters" class="grid h-7 w-7 place-items-center rounded-full text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100">
+					@Icon("x", "h-4 w-4")
+				</button>
+			</div>
+
+			<div class="flex-1 overflow-y-auto p-3">
+				<p class="px-3 pt-2 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Status</p>
+				<a href={ libraryURL("all", v.Platform, v.Sort) } class={ filterOptionClass(v.Filter == "all") }>
+					<span class="flex items-center gap-2">All</span>
+				</a>
+				for _, s := range AllStatuses() {
+					<a href={ libraryURL(string(s), v.Platform, v.Sort) } class={ filterOptionClass(v.Filter == string(s)) }>
+						<span class="flex items-center gap-2">
+							@StatusIcon(s, "h-3.5 w-3.5")
+							{ metaFor(s).Label }
+						</span>
+					</a>
+				}
+
+				<p class="px-3 pt-5 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Platform</p>
+				<a href={ libraryURL(v.Filter, "", v.Sort) } class={ filterOptionClass(v.Platform == "") }>
+					<span>All platforms</span>
+					<span class="text-xs text-zinc-500">{ v.Total }</span>
+				</a>
+				for _, p := range v.Platforms {
+					<a href={ libraryURL(v.Filter, p, v.Sort) } class={ filterOptionClass(v.Platform == p) }>
+						<span class="truncate">{ p }</span>
+						<span class="text-xs text-zinc-500">{ platformCount(v.Counts, p) }</span>
+					</a>
+				}
+
+				<p class="px-3 pt-5 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Sort</p>
+				for _, s := range []string{"recent", "title", "rating"} {
+					<a href={ libraryURL(v.Filter, v.Platform, s) } class={ filterOptionClass(v.Sort == s) }>
+						<span>{ sortLabel(s) }</span>
+					</a>
+				}
+			</div>
+
+			if v.ActiveCount > 0 {
+				<div class="border-t border-white/5 p-4">
+					<a href="/library" class="block w-full rounded-xl bg-zinc-900 py-2.5 text-center text-sm font-semibold text-zinc-300 ring-1 ring-white/10 transition hover:bg-zinc-800 hover:text-zinc-100">Reset filters</a>
+				</div>
+			}
+		</aside>
+	</div>
+}

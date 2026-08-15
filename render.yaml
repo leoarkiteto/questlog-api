@@ -1,13 +1,13 @@
-# ── Questlog API on Render ────────────────────────────────────────────────────
+# ── Questlog (GOTTH monolith) on Render ─────────────────────────────────────
 # Blueprint: Infrastructure as Code for Render.
 # See: https://render.com/docs/blueprint-spec
 
 services:
   - type: web
-    name: questlog-api
+    name: questlog
     env: docker
     dockerfilePath: ./Dockerfile
-    healthCheckPath: /api/health
+    healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
         sync: false

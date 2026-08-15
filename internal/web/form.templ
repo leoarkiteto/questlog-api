@@ -1,0 +1,207 @@
+package web
+
+import (
+	"fmt"
+
+	"github.com/leoarkiteto/questlog-api/internal/catalog"
+)
+
+// GameFormPage renders the add/edit form inside the standard layout.
+templ GameFormPage(v FormView) {
+	<div class="mx-auto max-w-lg px-4 sm:px-6">
+		if v.IsEdit {
+			<h1 class="mb-6 text-xl font-bold text-zinc-100">Edit game</h1>
+		} else {
+			<h1 class="mb-6 text-xl font-bold text-zinc-100">Add a game</h1>
+		}
+		@GameForm(v)
+	</div>
+}
+
+// GameForm is the add/edit form. It POSTs to /games (new) or
+// /games/{id} (edit); the handler decides which.
+templ GameForm(v FormView) {
+	<form method="post" action={ formAction(v) } class="space-y-5">
+		<div>
+			<span class={ fieldLabel }>List</span>
+			<div class="flex flex-wrap gap-2">
+				for _, s := range AllStatuses() {
+					<label>
+						<input type="radio" name="status" value={ string(s) } class="peer sr-only"
+							if v.Game.Status == s { checked }>
+						<span class="flex cursor-pointer items-center gap-1.5 rounded-xl px-2 py-2.5 text-xs font-semibold ring-1 ring-white/10 transition active:scale-[0.98] peer-checked:bg-red-600 peer-checked:text-white peer-checked:ring-red-500 hover:bg-zinc-900">
+							@StatusIcon(s, "h-3.5 w-3.5")
+							{ metaFor(s).Label }
+						</span>
+					</label>
+				}
+			</div>
+		</div>
+
+		<div id="game-fields">
+			@GameFields(v)
+		</div>
+
+		if canRate(v.Game.Status) {
+			<div>
+				<span class={ fieldLabel }>Rating · how much did you like it?</span>
+				<div class="flex items-center gap-3 rounded-xl border border-white/10 bg-zinc-900 px-4 py-3">
+					<div class="inline-flex items-center gap-1">
+						for n := 1; n <= 5; n++ {
+							<label class="cursor-pointer">
+								<input type="radio" name="rating" value={ fmt.Sprintf("%d", n) } class="sr-only"
+									if v.Game.Rating == n { checked }>
+								<svg viewBox="0 0 24 24" class={ ratingInputClass(n <= v.Game.Rating) }>
+									<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path>
+								</svg>
+							</label>
+						}
+					</div>
+					<span class="text-xs text-zinc-500">{ ratingHint(v.Game.Rating) }</span>
+					if v.Game.Rating > 0 {
+						<button type="button" onclick="qlClearRating()" class="text-xs font-medium text-zinc-500 transition hover:text-zinc-200">Clear</button>
+					}
+				</div>
+			</div>
+		}
+
+		<div>
+			<label for="notes" class={ fieldLabel }>Notes</label>
+			<textarea id="notes" name="notes" rows="3" placeholder="What did you think? Where to buy it?…"
+				class="w-full rounded-lg border border-white/15 bg-zinc-900 px-2.5 py-2 text-base text-zinc-100 placeholder-zinc-500 outline-none resize-y focus-visible:border-red-500/50 md:text-sm">{ v.Game.Notes }</textarea>
+		</div>
+
+		if v.Error != "" {
+			<div role="alert" class="rounded-lg bg-red-950/50 px-2.5 py-2 text-sm text-red-300 ring-1 ring-red-500/30">{ v.Error }</div>
+		}
+
+		<button type="submit" class="w-full rounded-xl bg-gradient-to-b from-red-500 to-red-700 py-3 text-sm font-bold text-white shadow-lg shadow-red-900/40 transition active:scale-[0.99] hover:from-red-500 hover:to-red-600">
+			{ submitLabel(v) }
+		</button>
+	</form>
+}
+
+// GameFields is the auto-fillable metadata block, swapped in via HTMX
+// when a catalog suggestion is picked.
+templ GameFields(v FormView) {
+	<div>
+		<label for="title" class={ fieldLabel }>Title *</label>
+		<div class="flex gap-2">
+			<div class="relative w-full">
+				<input id="title" name="title" type="text" value={ v.Game.Title } placeholder="e.g. Elden Ring" autocomplete="off"
+					hx-get="/partials/catalog/search"
+					hx-trigger="keyup changed delay:500ms"
+					hx-target="#suggestions"
+					hx-include="this"
+					class="w-full rounded-lg border border-white/15 bg-zinc-900 px-2.5 py-2 pr-9 text-base text-zinc-100 placeholder-zinc-500 outline-none focus-visible:border-red-500/50 md:text-sm">
+				if v.Game.Title != "" {
+					<button type="button" aria-label="Clear title" onclick="this.previousElementSibling.value='';this.previousElementSibling.focus();this.previousElementSibling.dispatchEvent(new Event('input'));this.classList.add('hidden')"
+						class="absolute top-1/2 right-2 grid h-5 w-5 -translate-y-1/2 place-items-center rounded-full text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100">
+						@Icon("x", "h-3.5 w-3.5")
+					</button>
+				}
+			</div>
+			<button type="button"
+				hx-get="/partials/catalog/search"
+				hx-include="#title"
+				hx-target="#suggestions"
+				class="shrink-0 rounded-xl bg-zinc-800 px-4 py-2.5 text-sm font-semibold text-zinc-200 ring-1 ring-white/10 transition hover:bg-zinc-700">Search Steam</button>
+		</div>
+		<p class="mt-1 text-[11px] text-zinc-600">Start typing — tap a Steam match to auto-fill cover, year, genre, platform &amp; description.</p>
+
+		<div id="suggestions"></div>
+
+		if v.Game.SteamAppID != nil {
+			<p class="mt-2 text-[11px] text-zinc-600">✓ Linked to Steam app { *v.Game.SteamAppID }</p>
+		}
+	</div>
+
+	<div class="grid grid-cols-1 gap-5 sm:grid-cols-2">
+		<div>
+			<label for="platform" class={ fieldLabel }>Platform</label>
+			@PlatformSelect(v.Game.Platform)
+		</div>
+		<div>
+			<label for="year" class={ fieldLabel }>Year</label>
+			<input id="year" name="year" type="number" min="1950" max="2100" value={ yearValue(v.Game.Year) } placeholder="2022"
+				class="w-full rounded-lg border border-white/15 bg-zinc-900 px-2.5 py-2 text-base text-zinc-100 placeholder-zinc-500 outline-none focus-visible:border-red-500/50 md:text-sm">
+		</div>
+	</div>
+
+	<div>
+		<label for="genre" class={ fieldLabel }>Genre</label>
+		<input id="genre" name="genre" type="text" value={ v.Game.Genre } placeholder="e.g. Action RPG"
+			class="w-full rounded-lg border border-white/15 bg-zinc-900 px-2.5 py-2 text-base text-zinc-100 placeholder-zinc-500 outline-none focus-visible:border-red-500/50 md:text-sm">
+	</div>
+
+	<div class="flex gap-4">
+		<div class="min-w-0 flex-1">
+			<label for="coverUrl" class={ fieldLabel }>Cover image URL</label>
+			<input id="coverUrl" name="coverUrl" type="url" value={ v.Game.CoverURL } placeholder="https://…/cover.jpg"
+				class="w-full rounded-lg border border-white/15 bg-zinc-900 px-2.5 py-2 text-base text-zinc-100 placeholder-zinc-500 outline-none focus-visible:border-red-500/50 md:text-sm">
+			<p class="mt-1 text-[11px] text-zinc-600">Auto-filled from Steam, or paste your own link.</p>
+		</div>
+		<div class="w-20 shrink-0" id="cover-preview">
+			@GameCover(strDefault(v.Game.Title, "Cover"), v.Game.CoverURL, "aspect-[2/3] rounded-lg ring-1 ring-white/10")
+		</div>
+	</div>
+
+	<div>
+		<label for="description" class={ fieldLabel }>Description</label>
+		<textarea id="description" name="description" rows="3" placeholder="Short description of the game…"
+			class="w-full rounded-lg border border-white/15 bg-zinc-900 px-2.5 py-2 text-base text-zinc-100 placeholder-zinc-500 outline-none resize-y focus-visible:border-red-500/50 md:text-sm">{ v.Game.Description }</textarea>
+	</div>
+
+	<input type="hidden" name="steamAppId" value={ steamAppIDValue(v.Game.SteamAppID) }>
+	<input type="hidden" name="timeToBeatMinutes" value={ timeToBeatValue(v.Game.TimeToBeatMinutes) }>
+}
+
+// PlatformSelect renders the platform dropdown with the current value
+// kept even if it isn't in the canonical list.
+templ PlatformSelect(selected string) {
+	<select id="platform" name="platform"
+		class="w-full rounded-lg border border-white/15 bg-zinc-900 px-2.5 py-2 text-base text-zinc-100 outline-none focus-visible:border-red-500/50 md:text-sm">
+		<option value="" disabled if selected == "" { selected }>— Select platform —</option>
+		if selected != "" && !platformInList(selected) {
+			<option value={ selected } selected>{ selected }</option>
+		}
+		for _, p := range Platforms {
+			<option value={ p } if selected == p { selected }>{ p }</option>
+		}
+	</select>
+}
+
+// CatalogSuggestions renders the Steam/IGDB suggestion list (HTMX partial).
+templ CatalogSuggestions(results []catalog.Result, searched bool) {
+	if len(results) > 0 {
+		<ul class="mt-2 max-h-56 divide-y divide-white/5 overflow-y-auto rounded-lg bg-zinc-950/60 ring-1 ring-white/5">
+			for _, r := range results {
+				<li>
+					<button type="button"
+						hx-get={ fmt.Sprintf("/partials/catalog/app/%s/%d", r.Source, r.AppID) }
+						hx-include="#game-fields"
+						hx-target="#game-fields"
+						hx-swap="innerHTML"
+						class="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-sm text-zinc-200 transition hover:bg-zinc-800/70">
+						<span class="flex min-w-0 items-center gap-2">
+							<span class="truncate font-medium">{ r.Name }</span>
+							if r.Platform != "" {
+								<span class="hidden shrink-0 text-[11px] text-zinc-500 sm:inline">{ r.Platform }</span>
+							}
+						</span>
+						<span class={ fmt.Sprintf("shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide %s", sourceBadgeClass(r.Source)) }>
+							{ sourceLabel(r.Source) }
+						</span>
+					</button>
+				</li>
+			}
+		</ul>
+	} else if searched {
+		<p class="mt-2 text-xs text-zinc-600">No matches found.</p>
+	}
+}
+
+// CatalogFillError renders a catalog lookup failure (HTMX partial).
+templ CatalogFillError(message string) {
+	<p class="mt-2 text-xs text-amber-400/90">{ message }</p>
+}

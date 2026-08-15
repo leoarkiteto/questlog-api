@@ -1,0 +1,34 @@
+package web
+
+import "fmt"
+
+// SearchPage renders the collection search results (filtered server-side
+// by title/platform/genre/status).
+templ SearchPage(v SearchView) {
+	<div class="px-4 sm:px-6">
+		if v.Q != "" {
+			<h1 class="mb-4 text-xl font-bold text-zinc-100">
+				Results for <span class="text-red-400">“{ v.Q }”</span>
+			</h1>
+		} else {
+			<h1 class="mb-4 text-xl font-bold text-zinc-100">Search</h1>
+			<p class="mb-6 text-sm text-zinc-500">Type in the search bar at the top of the app to search your collection.</p>
+		}
+
+		if v.Q != "" && len(v.Games) == 0 {
+			@EmptyState(fmt.Sprintf("No games match \"%s\"", v.Q), "Search your collection by title, platform, or genre.", "", "")
+		} else if len(v.Games) == 0 {
+			@EmptyState("No games yet", "Add your first game to see it here.", "/games/new", "Add a game")
+		} else {
+			<p class="mb-3 text-xs font-medium uppercase tracking-wider text-zinc-500">{ resultCountLabel(v.Q, len(v.Games)) }</p>
+			<div class="grid grid-cols-3 gap-x-3 gap-y-5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
+				for _, g := range v.Games {
+					@GameCard(g, "w-full", false)
+				}
+			</div>
+			if v.Q == "" {
+				<a href="/library" class="mt-6 inline-block text-sm font-medium text-zinc-400 transition hover:text-zinc-100">Browse the full library →</a>
+			}
+		}
+	</div>
+}

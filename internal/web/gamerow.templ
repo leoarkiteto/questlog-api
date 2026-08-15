@@ -1,0 +1,35 @@
+package web
+
+import (
+	"fmt"
+
+	"github.com/leoarkiteto/questlog-api/internal/model"
+)
+
+// GameRow is a Netflix-style horizontal scrolling row: header +
+// snap-scroll cards.
+templ GameRow(status model.Status, games []model.Game, showAllHref string) {
+	<section class="mb-8">
+		<div class="mb-3 flex items-baseline justify-between px-4 sm:px-6">
+			<h2 class="flex items-center gap-2 text-lg font-bold text-zinc-100">
+				@StatusIcon(status, fmt.Sprintf("h-4 w-4 %s", metaFor(status).Accent))
+				{ metaFor(status).Label }
+				<span class="text-xs font-medium text-zinc-500">{ len(games) }</span>
+			</h2>
+			if showAllHref != "" && len(games) > 0 {
+				<a href={ showAllHref } class="text-xs font-medium text-zinc-400 transition hover:text-zinc-100">Show all →</a>
+			}
+		</div>
+
+		if len(games) == 0 {
+			<p class="px-4 text-sm text-zinc-600 sm:px-6">Nothing here yet — add a game with the + button.</p>
+		} else {
+			<div class="no-scrollbar flex snap-x gap-3 overflow-x-auto px-4 pb-2 scroll-px-4 sm:px-6 sm:scroll-px-6">
+				for _, g := range games {
+					@GameCard(g, "w-32 shrink-0 snap-start sm:w-40", false)
+				}
+				<div class="w-2 shrink-0" aria-hidden="true"></div>
+			</div>
+		}
+	</section>
+}

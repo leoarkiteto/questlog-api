@@ -1,0 +1,86 @@
+package web
+
+import (
+	"fmt"
+
+	"github.com/leoarkiteto/questlog-api/internal/model"
+)
+
+// Icon renders a Lucide-style inline SVG by key (see icons.go).
+templ Icon(name string, class string) {
+	if i, ok := icons[name]; ok {
+		if i.fill {
+			<svg viewBox="0 0 24 24" class={ class } fill="currentColor" aria-hidden="true">
+				@templ.Raw(i.inner)
+			</svg>
+		} else {
+			<svg viewBox="0 0 24 24" class={ class } fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+				@templ.Raw(i.inner)
+			</svg>
+		}
+	}
+}
+
+// GameCover renders cover art with a dark gradient fallback (initial
+// letter) when there is no image. The image removes itself on load
+// failure, revealing the fallback underneath.
+templ GameCover(title string, src string, class string) {
+	<div class={ "relative overflow-hidden bg-gradient-to-br from-zinc-800 via-zinc-900 to-black " + class }>
+		<div class="absolute inset-0 flex items-center justify-center">
+			<span class="text-4xl font-black text-zinc-600/70 select-none">{ coverInitial(title) }</span>
+		</div>
+		if src != "" {
+			<img src={ src } alt={ title } loading="lazy" onerror="this.remove()" class="absolute inset-0 h-full w-full object-cover"/>
+		}
+	</div>
+}
+
+// StarRating renders a read-only 5-star rating.
+templ StarRating(value int, size string) {
+	<div class="inline-flex items-center gap-1" role="img" aria-label={ fmt.Sprintf("Rated %d out of 5", value) }>
+		for n := 1; n <= 5; n++ {
+			@Icon("star", starClass(size, n <= value))
+		}
+	</div>
+}
+
+// StatusIcon renders the icon for a game status.
+templ StatusIcon(status model.Status, class string) {
+	@Icon(metaFor(status).Icon, class)
+}
+
+// PlatformIcon renders a brand icon (PlayStation / Xbox / Nintendo /
+// Steam-PC) for a game's platform, falling back to a gamepad.
+templ PlatformIcon(platform string, class string) {
+	if b := brandOf(platform); b != brandOther {
+		if p, ok := brandPaths[b]; ok {
+			<svg viewBox="0 0 24 24" fill="currentColor" role="img" aria-label={ p.label } class={ class }>
+				<title>{ p.label }</title>
+				<path d={ p.d }></path>
+			</svg>
+		}
+	} else {
+		@Icon("gamepad-2", class)
+	}
+}
+
+// StatusBadge renders a colored pill with the status icon + label.
+templ StatusBadge(status model.Status) {
+	<span class={ "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ring-1 " + metaFor(status).Badge }>
+		@StatusIcon(status, "h-3 w-3")
+		{ metaFor(status).Label }
+	</span>
+}
+
+// EmptyState renders a dashed placeholder with an optional CTA.
+templ EmptyState(title string, message string, actionHref string, actionLabel string) {
+	<div class="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-zinc-800 px-6 py-10 text-center">
+		<p class="text-sm font-semibold text-zinc-300">{ title }</p>
+		if message != "" {
+			<p class="max-w-xs text-xs text-zinc-500">{ message }</p>
+		}
+		if actionHref != "" {
+			<a href={ actionHref } class="mt-2 rounded-full bg-red-600 px-4 py-1.5 text-sm font-semibold text-white transition hover:bg-red-500">{ strDefault(actionLabel, "Add a game") }</a>
+		}
+	</div>
+}

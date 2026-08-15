@@ -1,7 +1,10 @@
-.PHONY: run test build migrate seed db-up db-down db-logs
+.PHONY: run dev test vet build migrate seed db-up db-down db-logs templ css css-watch
 
 ## Run ------------------------------------------------------------------
-run:             ## Run the Go API on :8080 (needs Postgres or DATABASE_URL)
+run:             ## Run the Go server on :8080 (needs Postgres or DATABASE_URL)
+	go run .
+
+dev: css         ## Run locally, rebuilding CSS first
 	go run .
 
 ## Test & Build ----------------------------------------------------------
@@ -11,8 +14,18 @@ test:            ## Run unit tests
 vet:             ## Run go vet
 	go vet ./...
 
-build:           ## Compile the binary
+build: templ css ## Regenerate templates + CSS, then compile the binary
 	go build -o bin/questlog .
+
+## Codegen ---------------------------------------------------------------
+templ:           ## Generate Go code from .templ files
+	templ generate
+
+css:             ## Compile Tailwind CSS into static/css/styles.css
+	npx --yes @tailwindcss/cli@4.1.17 -i internal/web/css/input.css -o static/css/styles.css --minify
+
+css-watch:       ## Rebuild CSS on change
+	npx --yes @tailwindcss/cli@4.1.17 -i internal/web/css/input.css -o static/css/styles.css --watch
 
 ## Database (local) ------------------------------------------------------
 db-up:           ## Start local Postgres via Docker
@@ -27,6 +40,5 @@ db-logs:         ## Tail Postgres logs
 migrate:         ## Apply DB migrations (reads DATABASE_URL from env/.env)
 	go run ./cmd/migrate
 
-## Helpers ---------------------------------------------------------------
-seed:            ## Insert sample games (API defaults to localhost:8080)
-	@bash scripts/seed.sh
+seed:            ## Insert sample games
+	go run ./cmd/seed

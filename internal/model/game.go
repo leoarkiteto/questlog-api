@@ -41,7 +41,7 @@ func (s Status) Valid() bool {
 func (s Status) Display() string {
 	switch s {
 	case StatusWishlist:
-		return "Wish to Play / Buy"
+		return "Wishlist"
 	case StatusPurchased:
 		return "Purchased"
 	case StatusPlaying:

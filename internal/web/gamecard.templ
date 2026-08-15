@@ -1,0 +1,29 @@
+package web
+
+import (
+	"fmt"
+
+	"github.com/leoarkiteto/questlog-api/internal/model"
+)
+
+// GameCard is the card used in rows and grids: cover, compact star
+// rating (played/dropped only), title, and platform icon.
+templ GameCard(g model.Game, class string, glow bool) {
+	<a href={ fmt.Sprintf("/games/%d", g.ID) } class={ "group flex flex-col gap-1.5 outline-none " + class }>
+		@GameCover(g.Title, g.CoverURL, coverClasses(glow))
+		<div class="px-0.5">
+			if canRate(g.Status) {
+				<div class="mb-0.5 flex items-center gap-1">
+					@Icon("star", starIconClass(g.Rating > 0))
+					<span class={ "text-xs font-medium " + starTextClass(g.Rating > 0) }>{ fmt.Sprintf("%d/5", g.Rating) }</span>
+				</div>
+			}
+			<div class="flex items-center justify-between gap-1">
+				<h3 class="min-w-0 truncate text-sm font-semibold text-zinc-100" title={ g.Title }>{ g.Title }</h3>
+				if g.Platform != "" {
+					@PlatformIcon(g.Platform, "h-3.5 w-3.5 shrink-0 text-zinc-500")
+				}
+			</div>
+		</div>
+	</a>
+}

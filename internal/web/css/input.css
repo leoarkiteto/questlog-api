@@ -1,0 +1,47 @@
+@import "tailwindcss";
+
+@source "../*.templ";
+@source "../*.go";
+@source "../../../static/js/*.js";
+
+:root {
+  color-scheme: dark;
+}
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    background-color: #09090b; /* zinc-950 */
+  }
+}
+
+/* Hide horizontal scrollbars on the Netflix-style rows */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Subtle fade at the right edge of rows */
+.row-fade::after {
+  content: "";
+  pointer-events: none;
+  position: sticky;
+  right: 0;
+  width: 2rem;
+  flex-shrink: 0;
+  background: linear-gradient(to left, #09090b 10%, transparent);
+}
+
+/* HTMX request indicator */
+.htmx-indicator {
+  display: none;
+}
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator {
+  display: inline;
+}
