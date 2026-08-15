@@ -14,7 +14,7 @@ templ Layout(title string, path string, q string, content templ.Component) {
 			<script src="/static/js/htmx.min.js" defer></script>
 			<script src="/static/js/app.js" defer></script>
 		</head>
-		<body class="min-h-dvh bg-zinc-950 font-sans text-zinc-100 antialiased">
+		<body hx-boost="true" class="min-h-dvh bg-zinc-950 font-sans text-zinc-100 antialiased">
 			@Header(path, q)
 			<main class="mx-auto max-w-6xl pt-4 pb-24 md:pb-12">
 				@content
