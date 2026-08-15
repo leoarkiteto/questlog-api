@@ -62,7 +62,7 @@ templ Header(path string, q string, sess *auth.Session) {
 					<input type="hidden" name="_csrf" value={ sess.CSRFToken }>
 					<a href="/profile" class="hidden max-w-[8rem] truncate text-xs text-zinc-400 transition hover:text-zinc-100 lg:block" title={ sess.User.Email }>{ sess.User.Email }</a>
 					<button type="submit" aria-label="Sign out" title="Sign out"
-						class="grid h-9 w-9 shrink-0 place-items-center rounded-full text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100">
+						class="hidden h-9 w-9 shrink-0 place-items-center rounded-full text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100 md:grid">
 						@Icon("log-out", "h-4 w-4")
 					</button>
 				</form>

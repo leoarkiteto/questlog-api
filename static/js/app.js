@@ -25,6 +25,19 @@
     });
   };
 
+  // Password reveal toggle (login form). Pure UI chrome, like the
+  // rating-clear helper above.
+  window.qlTogglePassword = function (btn) {
+    var input = btn.parentElement.querySelector("input");
+    var reveal = input.type === "password";
+    input.type = reveal ? "text" : "password";
+    btn.setAttribute("aria-label", reveal ? "Hide password" : "Show password");
+    btn.setAttribute("title", reveal ? "Hide password" : "Show password");
+    btn.querySelector(".ql-pw-eye").classList.toggle("hidden", reveal);
+    btn.querySelector(".ql-pw-eye-off").classList.toggle("hidden", !reveal);
+    input.focus();
+  };
+
   document.addEventListener("keydown", function (e) {
     if (e.key === "Escape") setFilter(false);
   });
