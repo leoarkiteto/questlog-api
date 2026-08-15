@@ -1,0 +1,2 @@
+{"sequence":1,"timestamp":"2026-08-15T19:25:37.687262+01:00","event_type":"state_change","task_id":"20260815-170834.077096000-deepseek-v4-pro--bash-1","session_id":"20260815-170834.077096000-deepseek-v4-pro","state":"running","runtime_state":"alive"}
+{"sequence":2,"timestamp":"2026-08-15T19:26:23.590404+01:00","event_type":"state_change","task_id":"20260815-170834.077096000-deepseek-v4-pro--bash-1","session_id":"20260815-170834.077096000-deepseek-v4-pro","state":"cancelled","runtime_state":"exited","error_code":"job_failed"}
