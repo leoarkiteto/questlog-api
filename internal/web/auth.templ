@@ -1,0 +1,30 @@
+package web
+
+// LoginPage renders the sign-in form inside the standard layout.
+// Registration is closed, so this is the only auth entry point.
+templ LoginPage(v LoginView) {
+	<div class="mx-auto max-w-sm px-4 sm:px-6">
+		<h1 class="mb-1 text-xl font-bold text-zinc-100">Sign in</h1>
+		<p class="mb-6 text-sm text-zinc-500">Access your Questlog collection.</p>
+
+		<form method="post" action="/login" class="space-y-5">
+			<input type="hidden" name="_csrf" value={ v.CSRFToken }>
+			<div>
+				<label for="email" class={ fieldLabel }>Email</label>
+				<input id="email" name="email" type="email" required autofocus autocomplete="email" value={ v.Email }
+					class="w-full rounded-lg border border-white/15 bg-zinc-900 px-2.5 py-2 text-base text-zinc-100 placeholder-zinc-500 outline-none focus-visible:border-red-500/50 md:text-sm">
+			</div>
+			<div>
+				<label for="password" class={ fieldLabel }>Password</label>
+				<input id="password" name="password" type="password" required autocomplete="current-password"
+					class="w-full rounded-lg border border-white/15 bg-zinc-900 px-2.5 py-2 text-base text-zinc-100 placeholder-zinc-500 outline-none focus-visible:border-red-500/50 md:text-sm">
+			</div>
+			if v.Error != "" {
+				<div role="alert" class="rounded-lg bg-red-950/50 px-2.5 py-2 text-sm text-red-300 ring-1 ring-red-500/30">{ v.Error }</div>
+			}
+			<button type="submit" class="w-full rounded-xl bg-gradient-to-b from-red-500 to-red-700 py-3 text-sm font-bold text-white shadow-lg shadow-red-900/40 transition active:scale-[0.99] hover:from-red-500 hover:to-red-600">
+				Sign in
+			</button>
+		</form>
+	</div>
+}

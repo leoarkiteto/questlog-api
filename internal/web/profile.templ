@@ -1,0 +1,47 @@
+package web
+
+// ProfilePage renders the signed-in user's profile inside the standard
+// layout: account info, per-status collection stats, and sign out.
+templ ProfilePage(v ProfileView) {
+	<div class="mx-auto max-w-lg px-4 sm:px-6">
+		<h1 class="mb-6 text-xl font-bold text-zinc-100">Profile</h1>
+
+		<section class="rounded-xl border border-white/10 bg-zinc-900/60 p-5">
+			<div class="flex items-center gap-3">
+				<span class="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-red-600/15 text-red-400 ring-1 ring-red-500/30">
+					@Icon("user", "h-6 w-6")
+				</span>
+				<div class="min-w-0">
+					<p class="truncate font-semibold text-zinc-100">{ v.User.Email }</p>
+					<p class="text-xs text-zinc-500">Member since { profileDate(v.User.CreatedAt) }</p>
+				</div>
+			</div>
+		</section>
+
+		<section class="mt-4 rounded-xl border border-white/10 bg-zinc-900/60 p-5">
+			<h2 class="mb-3 text-sm font-bold text-zinc-200">Your collection</h2>
+			<div class="space-y-1.5">
+				for _, s := range AllStatuses() {
+					<div class="flex items-center justify-between rounded-lg px-2 py-1.5 text-sm">
+						<span class="flex items-center gap-2 text-zinc-300">
+							@StatusIcon(s, "h-4 w-4")
+							{ metaFor(s).Label }
+						</span>
+						<span class="font-semibold text-zinc-100">{ v.Counts[s] }</span>
+					</div>
+				}
+				<div class="mt-1 flex items-center justify-between border-t border-white/5 pt-2.5 text-sm font-bold text-zinc-100">
+					<span>Total</span>
+					<span>{ v.Total }</span>
+				</div>
+			</div>
+		</section>
+
+		<form method="post" action="/logout" class="mt-6">
+			<input type="hidden" name="_csrf" value={ v.CSRFToken }>
+			<button type="submit" class="w-full rounded-xl border border-white/10 bg-zinc-900 py-3 text-sm font-semibold text-red-300 transition hover:bg-zinc-800">
+				Sign out
+			</button>
+		</form>
+	</div>
+}

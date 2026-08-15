@@ -2,17 +2,26 @@
 // Steam titles get real Steam cover art + steam_appid; the rest get a
 // text placeholder. Duplicates (same title/appid) are skipped.
 //
+// Games belong to a user account, so seed needs one: pass --user <email>
+// or let it default to the first account (the owner, who adopted the
+// pre-account collection).
+//
 //	cd questlog-api && go run ./cmd/seed
+//	cd questlog-api && go run ./cmd/seed -user me@example.com
 package main
 
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"log"
 	"os"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
+	"github.com/leoarkiteto/questlog-api/internal/auth"
 	"github.com/leoarkiteto/questlog-api/internal/config"
 	"github.com/leoarkiteto/questlog-api/internal/model"
 	"github.com/leoarkiteto/questlog-api/internal/repo"
@@ -49,6 +58,9 @@ var seedGames = []seedGame{
 func main() {
 	_ = config.LoadDotEnv(".env")
 
+	userEmail := flag.String("user", "", "email of the account to seed into (default: first account)")
+	flag.Parse()
+
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
 		dbURL = "postgres://gamelog:gamelog@localhost:5432/gamelog"
@@ -67,6 +79,12 @@ func main() {
 		log.Fatalf("migrations: %v", err)
 	}
 
+	uid, email, err := resolveUser(ctx, store, *userEmail)
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+	fmt.Printf("Seeding into %s (id %d):\n", email, uid)
+
 	for _, s := range seedGames {
 		g := &model.Game{
 			Title:    s.title,
@@ -81,7 +99,7 @@ func main() {
 		if s.appID != nil {
 			g.SteamAppID = s.appID
 		}
-		if _, err := store.Create(ctx, g); err != nil {
+		if _, err := store.Create(ctx, uid, g); err != nil {
 			var dup *repo.ErrDuplicate
 			if errors.As(err, &dup) {
 				fmt.Printf("  = %s (already present, skipped)\n", s.title)
@@ -93,6 +111,34 @@ func main() {
 		fmt.Printf("  + %s\n", s.title)
 	}
 	fmt.Println("Done.")
+}
+
+// resolveUser picks the account to seed into: the one named by --user,
+// or the first account. Registration is closed, so an unknown email is
+// an error with a pointer to cmd/user rather than an auto-created
+// account.
+func resolveUser(ctx context.Context, store *repo.Store, email string) (int64, string, error) {
+	if email != "" {
+		u, err := store.UserByEmail(ctx, auth.NormalizeEmail(email))
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, "", fmt.Errorf(
+				"no account %q — create it first with `go run ./cmd/user create %s`",
+				auth.NormalizeEmail(email), auth.NormalizeEmail(email))
+		}
+		if err != nil {
+			return 0, "", err
+		}
+		return u.ID, u.Email, nil
+	}
+	u, err := store.FirstUser(ctx)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, "", fmt.Errorf(
+			"no accounts yet — create the owner first with `go run ./cmd/user create <email>`")
+	}
+	if err != nil {
+		return 0, "", err
+	}
+	return u.ID, u.Email, nil
 }
 
 func coverFor(s seedGame) string {

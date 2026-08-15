@@ -1,4 +1,4 @@
-.PHONY: run dev test vet build migrate seed db-up db-down db-logs templ css css-watch
+.PHONY: run dev test vet build migrate seed user db-up db-down db-logs templ css css-watch
 
 ## Run ------------------------------------------------------------------
 run:             ## Run the Go server on :8080 (needs Postgres or DATABASE_URL)
@@ -40,5 +40,8 @@ db-logs:         ## Tail Postgres logs
 migrate:         ## Apply DB migrations (reads DATABASE_URL from env/.env)
 	go run ./cmd/migrate
 
-seed:            ## Insert sample games
-	go run ./cmd/seed
+seed:            ## Insert sample games (uses first account, or pass USER=email@x.com)
+	go run ./cmd/seed $(if $(USER),-user $(USER),)
+
+user:            ## Create an account (closed registration): make user EMAIL=me@x.com
+	go run ./cmd/user create $(EMAIL) $(ARGS)

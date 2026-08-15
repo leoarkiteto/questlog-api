@@ -22,6 +22,7 @@ templ GameFormPage(v FormView) {
 // /games/{id} (edit); the handler decides which.
 templ GameForm(v FormView) {
 	<form method="post" action={ formAction(v) } class="space-y-5">
+		<input type="hidden" name="_csrf" value={ v.CSRFToken }>
 		<div>
 			<span class={ fieldLabel }>List</span>
 			<div class="flex flex-wrap gap-2">

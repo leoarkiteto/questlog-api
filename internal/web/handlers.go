@@ -2,15 +2,18 @@ package web
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"log"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/leoarkiteto/questlog-api/internal/auth"
 	"github.com/leoarkiteto/questlog-api/internal/catalog"
 	"github.com/leoarkiteto/questlog-api/internal/model"
 	"github.com/leoarkiteto/questlog-api/internal/repo"
@@ -19,13 +22,15 @@ import (
 // Server holds the dependencies for the HTML UI.
 type Server struct {
 	store   *repo.Store
+	auth    *auth.Service
 	catalog *catalog.Service
 }
 
 // New builds the HTTP handler for the whole site: HTML pages, HTMX
-// partials, and the health check.
-func New(store *repo.Store, catalogService *catalog.Service) http.Handler {
-	s := &Server{store: store, catalog: catalogService}
+// partials, and the health check. Every route except /login, /health
+// and /static/ requires a valid session.
+func New(store *repo.Store, authService *auth.Service, catalogService *catalog.Service) http.Handler {
+	s := &Server{store: store, auth: authService, catalog: catalogService}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", s.handleDashboard)
@@ -40,9 +45,13 @@ func New(store *repo.Store, catalogService *catalog.Service) http.Handler {
 	mux.HandleFunc("POST /games/{id}/enrich", s.handleEnrich)
 	mux.HandleFunc("GET /partials/catalog/search", s.handleCatalogSearch)
 	mux.HandleFunc("GET /partials/catalog/app/{source}/{appid}", s.handleCatalogApp)
+	mux.HandleFunc("GET /login", s.handleLoginForm)
+	mux.HandleFunc("POST /login", s.handleLogin)
+	mux.HandleFunc("POST /logout", s.handleLogout)
+	mux.HandleFunc("GET /profile", s.handleProfile)
 	mux.HandleFunc("GET /health", s.handleHealth)
 
-	return s.logMiddleware(mux)
+	return s.logMiddleware(s.requireAuth(s.csrfProtect(mux)))
 }
 
 // ---- Middleware ----
@@ -52,6 +61,270 @@ func (s *Server) logMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 		log.Printf("%s %s (%s)", r.Method, r.URL.Path, r.RemoteAddr)
 	})
+}
+
+// requireAuth gates the whole app except a few public endpoints. On
+// success it stores the resolved Session in the request context.
+func (s *Server) requireAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isPublicPath(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		sess := s.currentSession(r)
+		if sess == nil {
+			clearSessionCookie(w)
+			redirectLogin(w, r)
+			return
+		}
+		ctx := context.WithValue(r.Context(), sessionCtxKey{}, sess)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// isPublicPath reports whether a path is reachable without a session.
+func isPublicPath(path string) bool {
+	return path == "/login" || path == "/health" || strings.HasPrefix(path, "/static/")
+}
+
+// redirectLogin sends unauthenticated visitors to the sign-in page,
+// preserving the destination so they land back where they were heading.
+func redirectLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("HX-Request") != "" {
+		w.Header().Set("HX-Redirect", "/login")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	http.Redirect(w, r, "/login?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusSeeOther)
+}
+
+// csrfProtect requires a valid CSRF token on every state-changing
+// request. Authenticated requests use the per-session token from the
+// database (checked against the session in context); the login form,
+// which has no session yet, uses the anonymous double-submit cookie set
+// on GET /login.
+func (s *Server) csrfProtect(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet, http.MethodHead, http.MethodOptions:
+			next.ServeHTTP(w, r)
+			return
+		}
+		submitted := r.FormValue("_csrf")
+		if submitted == "" {
+			submitted = r.Header.Get("X-CSRF-Token")
+		}
+		if sess := sessionFrom(r); sess != nil {
+			if !auth.ValidCSRF(sess, submitted) {
+				http.Error(w, "invalid CSRF token", http.StatusForbidden)
+				return
+			}
+		} else if !validAnonCSRF(r) {
+			http.Error(w, "invalid CSRF token", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// ---- Session context ----
+
+type sessionCtxKey struct{}
+
+// sessionFrom returns the session stored by requireAuth, or nil.
+func sessionFrom(r *http.Request) *auth.Session {
+	sess, _ := r.Context().Value(sessionCtxKey{}).(*auth.Session)
+	return sess
+}
+
+// userID returns the id of the signed-in user for the request. Handlers
+// run behind requireAuth, so this is never 0 in practice.
+func userID(r *http.Request) int64 {
+	if sess := sessionFrom(r); sess != nil {
+		return sess.User.ID
+	}
+	return 0
+}
+
+// currentSession resolves the session cookie, or nil when absent or
+// invalid. Called by requireAuth and by /login to detect signed-in users.
+func (s *Server) currentSession(r *http.Request) *auth.Session {
+	c, err := r.Cookie(auth.SessionCookie)
+	if err != nil {
+		return nil
+	}
+	sess, err := s.auth.SessionByToken(r.Context(), c.Value)
+	if err != nil {
+		return nil
+	}
+	return sess
+}
+
+// sessionCookie builds the session cookie for a raw token.
+func sessionCookie(r *http.Request, raw string) *http.Cookie {
+	c := &http.Cookie{
+		Name:     auth.SessionCookie,
+		Value:    raw,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(auth.SessionMaxAge.Seconds()),
+	}
+	if secureRequest(r) {
+		c.Secure = true
+	}
+	return c
+}
+
+// clearSessionCookie expires the session cookie (used on logout and
+// when a session is invalid).
+func clearSessionCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     auth.SessionCookie,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
+}
+
+// secureRequest reports whether the request arrived over TLS (Render
+// terminates TLS and forwards X-Forwarded-Proto).
+func secureRequest(r *http.Request) bool {
+	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+}
+
+// ---- Auth handlers ----
+
+func (s *Server) handleLoginForm(w http.ResponseWriter, r *http.Request) {
+	if s.currentSession(r) != nil {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	view := LoginView{CSRFToken: s.anonCSRF(w, r)}
+	if q := r.URL.Query().Get("error"); q != "" {
+		view.Error = q
+	}
+	if q := r.URL.Query().Get("email"); q != "" {
+		view.Email = q
+	}
+	render(w, r, http.StatusOK, Layout("Questlog — Sign in", r.URL.Path, "", nil, LoginPage(view)))
+}
+
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if !validAnonCSRF(r) {
+		http.Error(w, "invalid CSRF token", http.StatusForbidden)
+		return
+	}
+	email := strings.TrimSpace(r.FormValue("email"))
+	password := r.FormValue("password")
+
+	u, err := s.auth.Authenticate(r.Context(), email, password)
+	if err != nil {
+		if errors.Is(err, auth.ErrInvalidCredentials) {
+			view := LoginView{
+				Email:     auth.NormalizeEmail(email),
+				Error:     err.Error(),
+				CSRFToken: s.anonCSRF(w, r),
+			}
+			render(w, r, http.StatusUnauthorized, Layout("Questlog — Sign in", r.URL.Path, "", nil, LoginPage(view)))
+			return
+		}
+		serverError(w, err)
+		return
+	}
+
+	raw, err := s.auth.CreateSession(r.Context(), u.ID)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	http.SetCookie(w, sessionCookie(r, raw))
+	http.Redirect(w, r, nextPath(r), http.StatusSeeOther)
+}
+
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if c, err := r.Cookie(auth.SessionCookie); err == nil {
+		_ = s.auth.DestroySession(r.Context(), c.Value)
+	}
+	clearSessionCookie(w)
+	if r.Header.Get("HX-Request") != "" {
+		w.Header().Set("HX-Redirect", "/login")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
+
+// handleProfile renders the signed-in user's profile: account info and
+// per-status collection stats.
+func (s *Server) handleProfile(w http.ResponseWriter, r *http.Request) {
+	sess := sessionFrom(r)
+	counts, err := s.store.CountByStatus(r.Context(), sess.User.ID)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	total := 0
+	for _, n := range counts {
+		total += n
+	}
+	view := ProfileView{
+		User:      sess.User,
+		Counts:    counts,
+		Total:     total,
+		CSRFToken: sess.CSRFToken,
+	}
+	render(w, r, http.StatusOK, Layout("Questlog — Profile", r.URL.Path, "", sess, ProfilePage(view)))
+}
+
+// anonCSRF returns the anonymous CSRF token for the login form,
+// refreshing the cookie when it is absent.
+func (s *Server) anonCSRF(w http.ResponseWriter, r *http.Request) string {
+	if c, err := r.Cookie(auth.AnonCSRFCookie); err == nil && c.Value != "" {
+		return c.Value
+	}
+	token, err := auth.NewRandomToken()
+	if err != nil {
+		return ""
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     auth.AnonCSRFCookie,
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   15 * 60, // 15 minutes; the form is short-lived
+		Secure:   secureRequest(r),
+	})
+	return token
+}
+
+// validAnonCSRF checks the login form's double-submit token: the cookie
+// set on GET /login must match the _csrf form field.
+func validAnonCSRF(r *http.Request) bool {
+	c, err := r.Cookie(auth.AnonCSRFCookie)
+	if err != nil || c.Value == "" {
+		return false
+	}
+	submitted := r.FormValue("_csrf")
+	return subtle.ConstantTimeCompare([]byte(c.Value), []byte(submitted)) == 1
+}
+
+// nextPath sanitizes the ?next= destination after login, allowing only
+// local absolute paths to avoid open redirects.
+func nextPath(r *http.Request) string {
+	next := strings.TrimSpace(r.FormValue("next"))
+	if next == "" {
+		return "/"
+	}
+	u, err := url.Parse(next)
+	if err != nil || u.IsAbs() || u.Host != "" || !strings.HasPrefix(next, "/") ||
+		strings.HasPrefix(next, "//") {
+		return "/"
+	}
+	return next
 }
 
 // ---- Handlers ----
@@ -67,7 +340,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
-	games, err := s.store.List(r.Context(), nil)
+	games, err := s.store.List(r.Context(), userID(r), nil)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -76,7 +349,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		Featured: pickFeatured(games),
 		Rows:     buildRows(games),
 	}
-	render(w, r, http.StatusOK, Layout("Questlog — my games", r.URL.Path, "", DashboardPage(view)))
+	render(w, r, http.StatusOK, Layout("Questlog — my games", r.URL.Path, "", sessionFrom(r), DashboardPage(view)))
 }
 
 // loadMoreHeader marks the library "load more" sentinel request (plain
@@ -112,12 +385,13 @@ func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
 		status = &st
 	}
 
+	uid := userID(r)
 	ctx := r.Context()
 	offset := (page - 1) * libraryPageSize
 
 	// "Load more" sentinel: return only the next cards + a fresh sentinel.
 	if r.Header.Get(loadMoreHeader) == "1" {
-		games, hasMore, err := s.store.ListPage(ctx, status, platform, sortKey, libraryPageSize, offset)
+		games, hasMore, err := s.store.ListPage(ctx, uid, status, platform, sortKey, libraryPageSize, offset)
 		if err != nil {
 			serverError(w, err)
 			return
@@ -126,22 +400,22 @@ func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	total, err := s.store.Count(ctx)
+	total, err := s.store.Count(ctx, uid)
 	if err != nil {
 		serverError(w, err)
 		return
 	}
-	filteredCount, err := s.store.CountFiltered(ctx, status, platform)
+	filteredCount, err := s.store.CountFiltered(ctx, uid, status, platform)
 	if err != nil {
 		serverError(w, err)
 		return
 	}
-	platforms, counts, err := s.store.PlatformCounts(ctx)
+	platforms, counts, err := s.store.PlatformCounts(ctx, uid)
 	if err != nil {
 		serverError(w, err)
 		return
 	}
-	games, hasMore, err := s.store.ListPage(ctx, status, platform, sortKey, libraryPageSize, offset)
+	games, hasMore, err := s.store.ListPage(ctx, uid, status, platform, sortKey, libraryPageSize, offset)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -171,7 +445,7 @@ func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
 		HasMore:       hasMore,
 		NextPage:      nextLibraryPage(page, hasMore),
 	}
-	render(w, r, http.StatusOK, Layout("Questlog — Library", r.URL.Path, "", LibraryPage(view)))
+	render(w, r, http.StatusOK, Layout("Questlog — Library", r.URL.Path, "", sessionFrom(r), LibraryPage(view)))
 }
 
 // queryPage parses the ?page= param, defaulting to 1 and clamping to >= 1.
@@ -192,32 +466,32 @@ func nextLibraryPage(page int, hasMore bool) int {
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
-	games, err := s.store.List(r.Context(), nil)
+	games, err := s.store.List(r.Context(), userID(r), nil)
 	if err != nil {
 		serverError(w, err)
 		return
 	}
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	view := SearchView{Q: q, Games: filterSearch(games, q)}
-	render(w, r, http.StatusOK, Layout("Questlog — Search", r.URL.Path, q, SearchPage(view)))
+	render(w, r, http.StatusOK, Layout("Questlog — Search", r.URL.Path, q, sessionFrom(r), SearchPage(view)))
 }
 
 func (s *Server) handleNewForm(w http.ResponseWriter, r *http.Request) {
-	view := FormView{Game: &model.Game{Status: model.StatusWishlist}, IsEdit: false}
-	render(w, r, http.StatusOK, Layout("Questlog — Add a game", r.URL.Path, "", GameFormPage(view)))
+	view := FormView{Game: &model.Game{Status: model.StatusWishlist}, IsEdit: false, CSRFToken: sessionFrom(r).CSRFToken}
+	render(w, r, http.StatusOK, Layout("Questlog — Add a game", r.URL.Path, "", sessionFrom(r), GameFormPage(view)))
 }
 
 func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	g := parseGameForm(r)
 	if err := g.Validate(); err != nil {
-		renderFormError(w, r, FormView{Game: g, IsEdit: false}, err.Error())
+		renderFormError(w, r, FormView{Game: g, IsEdit: false, CSRFToken: sessionFrom(r).CSRFToken}, err.Error())
 		return
 	}
-	created, err := s.store.Create(r.Context(), g)
+	created, err := s.store.Create(r.Context(), userID(r), g)
 	if err != nil {
 		var dup *repo.ErrDuplicate
 		if errors.As(err, &dup) {
-			renderFormError(w, r, FormView{Game: g, IsEdit: false}, duplicateMessage(dup))
+			renderFormError(w, r, FormView{Game: g, IsEdit: false, CSRFToken: sessionFrom(r).CSRFToken}, duplicateMessage(dup))
 			return
 		}
 		serverError(w, err)
@@ -231,7 +505,7 @@ func (s *Server) handleDetail(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	g, err := s.store.Get(r.Context(), id)
+	g, err := s.store.Get(r.Context(), userID(r), id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		http.NotFound(w, r)
 		return
@@ -240,8 +514,13 @@ func (s *Server) handleDetail(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	view := DetailView{Game: g, Related: relatedGames(r.Context(), s, g), Error: r.URL.Query().Get("error")}
-	render(w, r, http.StatusOK, Layout("Questlog — "+g.Title, r.URL.Path, "", DetailPage(view)))
+	view := DetailView{
+		Game:      g,
+		Related:   relatedGames(r.Context(), s, userID(r), g),
+		Error:     r.URL.Query().Get("error"),
+		CSRFToken: sessionFrom(r).CSRFToken,
+	}
+	render(w, r, http.StatusOK, Layout("Questlog — "+g.Title, r.URL.Path, "", sessionFrom(r), DetailPage(view)))
 }
 
 func (s *Server) handleEditForm(w http.ResponseWriter, r *http.Request) {
@@ -249,7 +528,7 @@ func (s *Server) handleEditForm(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	g, err := s.store.Get(r.Context(), id)
+	g, err := s.store.Get(r.Context(), userID(r), id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		http.NotFound(w, r)
 		return
@@ -258,8 +537,8 @@ func (s *Server) handleEditForm(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	view := FormView{Game: g, IsEdit: true}
-	render(w, r, http.StatusOK, Layout("Questlog — Edit game", r.URL.Path, "", GameFormPage(view)))
+	view := FormView{Game: g, IsEdit: true, CSRFToken: sessionFrom(r).CSRFToken}
+	render(w, r, http.StatusOK, Layout("Questlog — Edit game", r.URL.Path, "", sessionFrom(r), GameFormPage(view)))
 }
 
 func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
@@ -269,15 +548,15 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	g := parseGameForm(r)
 	if err := g.Validate(); err != nil {
-		renderFormError(w, r, FormView{Game: g, IsEdit: true}, err.Error())
+		renderFormError(w, r, FormView{Game: g, IsEdit: true, CSRFToken: sessionFrom(r).CSRFToken}, err.Error())
 		return
 	}
-	updated, err := s.store.Update(r.Context(), id, g)
+	updated, err := s.store.Update(r.Context(), userID(r), id, g)
 	if err != nil {
 		var dup *repo.ErrDuplicate
 		if errors.As(err, &dup) {
 			g.ID = id
-			renderFormError(w, r, FormView{Game: g, IsEdit: true}, duplicateMessage(dup))
+			renderFormError(w, r, FormView{Game: g, IsEdit: true, CSRFToken: sessionFrom(r).CSRFToken}, duplicateMessage(dup))
 			return
 		}
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -295,7 +574,7 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := s.store.Delete(r.Context(), id); err != nil {
+	if err := s.store.Delete(r.Context(), userID(r), id); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			http.NotFound(w, r)
 			return
@@ -319,7 +598,7 @@ func (s *Server) handleEnrich(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	g, err := s.store.Get(r.Context(), id)
+	g, err := s.store.Get(r.Context(), userID(r), id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		http.NotFound(w, r)
 		return
@@ -385,7 +664,7 @@ func (s *Server) handleEnrich(w http.ResponseWriter, r *http.Request) {
 		update.TimeToBeatMinutes = details.TimeToBeatMinutes
 	}
 
-	if _, err := s.store.Update(r.Context(), id, &update); err != nil {
+	if _, err := s.store.Update(r.Context(), userID(r), id, &update); err != nil {
 		http.Redirect(w, r, gamePath(id)+"?error="+urlQuery("Update failed: "+err.Error()), http.StatusSeeOther)
 		return
 	}
@@ -476,7 +755,7 @@ func renderFormError(w http.ResponseWriter, r *http.Request, v FormView, msg str
 	if v.IsEdit {
 		title = "Questlog — Edit game"
 	}
-	render(w, r, http.StatusOK, Layout(title, r.URL.Path, "", GameFormPage(v)))
+	render(w, r, http.StatusOK, Layout(title, r.URL.Path, "", sessionFrom(r), GameFormPage(v)))
 }
 
 func serverError(w http.ResponseWriter, err error) {
@@ -538,10 +817,10 @@ func buildRows(games []model.Game) []StatusRow {
 	return rows
 }
 
-// relatedGames returns up to 12 games sharing the same status, ranked
-// by rating then recency.
-func relatedGames(ctx context.Context, s *Server, g *model.Game) []model.Game {
-	all, err := s.store.List(ctx, &g.Status)
+// relatedGames returns up to 12 games of the same user sharing the same
+// status, ranked by rating then recency.
+func relatedGames(ctx context.Context, s *Server, uid int64, g *model.Game) []model.Game {
+	all, err := s.store.List(ctx, uid, &g.Status)
 	if err != nil {
 		return nil
 	}

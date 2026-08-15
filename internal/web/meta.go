@@ -159,6 +159,9 @@ func ariaCurrent(active bool) string {
 // isLibrary reports whether path is within the library section.
 func isLibrary(path string) bool { return strings.HasPrefix(path, "/library") }
 
+// isProfile reports whether path is the profile page.
+func isProfile(path string) bool { return path == "/profile" }
+
 // coverClasses returns the Tailwind classes for a game card's cover.
 func coverClasses(glow bool) string {
 	if glow {

@@ -54,6 +54,14 @@ func (s Status) Display() string {
 	return string(s)
 }
 
+// User is an account that owns a collection.
+type User struct {
+	ID           int64
+	Email        string
+	PasswordHash string
+	CreatedAt    time.Time
+}
+
 // Game is a single entry in the collection.
 type Game struct {
 	UpdatedAt         time.Time `json:"updatedAt"`
@@ -69,6 +77,7 @@ type Game struct {
 	Status            Status    `json:"status"`
 	Title             string    `json:"title"`
 	ID                int64     `json:"id"`
+	UserID            int64     `json:"userId"`
 	Rating            int       `json:"rating"`
 }
 

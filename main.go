@@ -9,10 +9,12 @@ import (
 	"os"
 	"time"
 
+	"github.com/leoarkiteto/questlog-api/internal/auth"
 	"github.com/leoarkiteto/questlog-api/internal/catalog"
 	"github.com/leoarkiteto/questlog-api/internal/config"
 	"github.com/leoarkiteto/questlog-api/internal/hltb"
 	"github.com/leoarkiteto/questlog-api/internal/igdb"
+	"github.com/leoarkiteto/questlog-api/internal/password"
 	"github.com/leoarkiteto/questlog-api/internal/repo"
 	"github.com/leoarkiteto/questlog-api/internal/steam"
 	"github.com/leoarkiteto/questlog-api/internal/web"
@@ -29,6 +31,15 @@ func main() {
 
 	dbURL := getenv("DATABASE_URL", "postgres://gamelog:gamelog@localhost:5432/gamelog")
 	port := getenv("PORT", "8080")
+	sessionMaxAge := sessionMaxAgeFromEnv()
+
+	// PASSWORD_PEPPER is a required secret: it is keyed into every
+	// password hash, so the server and cmd/user must share the same
+	// value. Fail fast rather than silently minting unrecoverable hashes.
+	pw, err := password.New(os.Getenv("PASSWORD_PEPPER"))
+	if err != nil {
+		log.Fatalf("password: %v (set PASSWORD_PEPPER, e.g. openssl rand -hex 32)", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -48,6 +59,7 @@ func main() {
 	mux.Handle("/static/", staticHandler())
 	mux.Handle("/", web.New(
 		store,
+		auth.NewWithMaxAge(store, store, pw, sessionMaxAge),
 		catalog.New(
 			steam.New(getenv("STEAM_API_KEY", "")),
 			igdb.New(
@@ -86,4 +98,16 @@ func getenv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// sessionMaxAgeFromEnv reads SESSION_MAX_AGE as a Go duration (e.g.
+// "720h"), defaulting to 30 days when unset or invalid.
+func sessionMaxAgeFromEnv() time.Duration {
+	if v := os.Getenv("SESSION_MAX_AGE"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+		log.Printf("warning: invalid SESSION_MAX_AGE %q, using default", v)
+	}
+	return 30 * 24 * time.Hour
 }

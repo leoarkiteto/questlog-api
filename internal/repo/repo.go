@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -114,6 +115,122 @@ func (s *Store) applyMigration(ctx context.Context, name, sqlText string) error 
 	return tx.Commit(ctx)
 }
 
+// ---- Users ----
+
+const userCols = `id, email, password_hash, created_at`
+
+func scanUser(row pgx.Row) (*model.User, error) {
+	var u model.User
+	if err := row.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.CreatedAt); err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+// ErrEmailTaken reports that the email is already registered.
+var ErrEmailTaken = errors.New("email already registered")
+
+// CreateUser inserts a new account and returns it with id and timestamps.
+// email must already be normalized (trimmed + lowercased by the caller).
+func (s *Store) CreateUser(ctx context.Context, email, passwordHash string) (*model.User, error) {
+	row := s.pool.QueryRow(ctx, `
+		INSERT INTO users (email, password_hash)
+		VALUES ($1, $2)
+		RETURNING `+userCols, email, passwordHash)
+	u, err := scanUser(row)
+	if isUniqueViolation(err) {
+		return nil, ErrEmailTaken
+	}
+	if err != nil {
+		return nil, err
+	}
+	return u, nil
+}
+
+// UserByEmail returns the user with the given (normalized) email, or
+// pgx.ErrNoRows when there is none.
+func (s *Store) UserByEmail(ctx context.Context, email string) (*model.User, error) {
+	return scanUser(s.pool.QueryRow(ctx,
+		`SELECT `+userCols+` FROM users WHERE lower(email) = $1`, email))
+}
+
+// UpdateUserPassword replaces a user's stored password hash (used to
+// upgrade legacy or non-default hashes on login). Returns pgx.ErrNoRows
+// when the user does not exist.
+func (s *Store) UpdateUserPassword(ctx context.Context, userID int64, passwordHash string) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE users SET password_hash = $1 WHERE id = $2`, passwordHash, userID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
+// FirstUser returns the account with the lowest id (the owner, who
+// adopted the pre-account games), or pgx.ErrNoRows when no accounts
+// exist.
+func (s *Store) FirstUser(ctx context.Context) (*model.User, error) {
+	return scanUser(s.pool.QueryRow(ctx,
+		`SELECT `+userCols+` FROM users ORDER BY id ASC LIMIT 1`))
+}
+
+// UserCount returns how many accounts exist (used to detect the first
+// user, who adopts the orphan games from before accounts existed).
+func (s *Store) UserCount(ctx context.Context) (int, error) {
+	var n int
+	err := s.pool.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&n)
+	return n, err
+}
+
+// ---- Sessions ----
+
+// CreateSession stores a session: the SHA-256 hash of the raw token
+// (never the token itself), the per-session CSRF token, and its expiry.
+func (s *Store) CreateSession(ctx context.Context, tokenHash, csrfToken string, userID int64, expiresAt time.Time) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO sessions (token_hash, user_id, csrf_token, expires_at)
+		VALUES ($1, $2, $3, $4)`, tokenHash, userID, csrfToken, expiresAt)
+	return err
+}
+
+// SessionByTokenHash returns the user and CSRF token for a live session,
+// or pgx.ErrNoRows when the token is unknown or expired.
+func (s *Store) SessionByTokenHash(ctx context.Context, tokenHash string, now time.Time) (*model.User, string, error) {
+	row := s.pool.QueryRow(ctx, `
+		SELECT u.id, u.email, u.password_hash, u.created_at, s.csrf_token
+		FROM sessions s
+		JOIN users u ON u.id = s.user_id
+		WHERE s.token_hash = $1 AND s.expires_at > $2`, tokenHash, now)
+	var u model.User
+	var csrf string
+	if err := row.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.CreatedAt, &csrf); err != nil {
+		return nil, "", err
+	}
+	return &u, csrf, nil
+}
+
+// DeleteSession removes a session (logout).
+func (s *Store) DeleteSession(ctx context.Context, tokenHash string) error {
+	_, err := s.pool.Exec(ctx, `DELETE FROM sessions WHERE token_hash = $1`, tokenHash)
+	return err
+}
+
+// DeleteExpiredSessions removes stale sessions; call it opportunistically.
+func (s *Store) DeleteExpiredSessions(ctx context.Context, now time.Time) error {
+	_, err := s.pool.Exec(ctx, `DELETE FROM sessions WHERE expires_at <= $1`, now)
+	return err
+}
+
+// AdoptOrphanGames assigns ownerless games (created before accounts
+// existed) to the given user. Returns the number of adopted rows.
+func (s *Store) AdoptOrphanGames(ctx context.Context, userID int64) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `UPDATE games SET user_id = $1 WHERE user_id IS NULL`, userID)
+	return tag.RowsAffected(), err
+}
+
 // ---- Games ----
 
 // ErrDuplicate reports that a game is already in the collection (same
@@ -147,22 +264,23 @@ func isUniqueViolation(err error) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
-// findDuplicate returns the first card that would collide with g: same
-// normalized title, or same non-null Steam app id. excludeID skips the
-// card being updated. Returns nil when there is no conflict.
+// findDuplicate returns the first card that would collide with g inside
+// the user's collection: same normalized title, or same non-null Steam
+// app id. excludeID skips the card being updated. Returns nil when there
+// is no conflict.
 func (s *Store) findDuplicate(
 	ctx context.Context,
-	excludeID int64,
+	userID, excludeID int64,
 	g *model.Game,
 	norm string,
 ) (*model.Game, error) {
 	row := s.pool.QueryRow(ctx, `
 		SELECT `+gameCols+` FROM games
-		WHERE id <> $1
-		  AND (normalized_title = $2 OR ($3::bigint IS NOT NULL AND steam_appid = $3))
+		WHERE user_id = $1 AND id <> $2
+		  AND (normalized_title = $3 OR ($4::bigint IS NOT NULL AND steam_appid = $4))
 		ORDER BY id DESC
 		LIMIT 1`,
-		excludeID, norm, g.SteamAppID)
+		userID, excludeID, norm, g.SteamAppID)
 	existing, err := scanGame(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -173,12 +291,12 @@ func (s *Store) findDuplicate(
 	return existing, nil
 }
 
-const gameCols = `id, title, status, rating, platform, year, genre, cover_url, description, notes, steam_appid, time_to_beat_minutes, created_at, updated_at`
+const gameCols = `id, user_id, title, status, rating, platform, year, genre, cover_url, description, notes, steam_appid, time_to_beat_minutes, created_at, updated_at`
 
 func scanGame(row pgx.Row) (*model.Game, error) {
 	var g model.Game
-	err := row.Scan(&g.ID, &g.Title, &g.Status, &g.Rating, &g.Platform, &g.Year,
-		&g.Genre, &g.CoverURL, &g.Description, &g.Notes, &g.SteamAppID,
+	err := row.Scan(&g.ID, &g.UserID, &g.Title, &g.Status, &g.Rating, &g.Platform,
+		&g.Year, &g.Genre, &g.CoverURL, &g.Description, &g.Notes, &g.SteamAppID,
 		&g.TimeToBeatMinutes, &g.CreatedAt, &g.UpdatedAt)
 	if err != nil {
 		return nil, err
@@ -186,12 +304,13 @@ func scanGame(row pgx.Row) (*model.Game, error) {
 	return &g, nil
 }
 
-// List returns all games, optionally filtered by status, newest first.
-func (s *Store) List(ctx context.Context, status *model.Status) ([]model.Game, error) {
-	q := `SELECT ` + gameCols + ` FROM games`
-	var args []any
+// List returns all of a user's games, optionally filtered by status,
+// newest first.
+func (s *Store) List(ctx context.Context, userID int64, status *model.Status) ([]model.Game, error) {
+	q := `SELECT ` + gameCols + ` FROM games WHERE user_id = $1`
+	var args []any = []any{userID}
 	if status != nil {
-		q += ` WHERE status = $1`
+		q += ` AND status = $2`
 		args = append(args, *status)
 	}
 	q += ` ORDER BY created_at DESC, id DESC`
@@ -213,19 +332,20 @@ func (s *Store) List(ctx context.Context, status *model.Status) ([]model.Game, e
 	return games, rows.Err()
 }
 
-// ListPage returns one page of games matching the library filters, plus
-// whether more rows exist beyond it. sortKey is "recent" (default),
-// "title", or "rating". limit/offset paginate; LIMIT is fetched as
-// limit+1 so hasMore is decided without a second query.
+// ListPage returns one page of a user's games matching the library
+// filters, plus whether more rows exist beyond it. sortKey is "recent"
+// (default), "title", or "rating". limit/offset paginate; LIMIT is
+// fetched as limit+1 so hasMore is decided without a second query.
 func (s *Store) ListPage(
 	ctx context.Context,
+	userID int64,
 	status *model.Status,
 	platform, sortKey string,
 	limit, offset int,
 ) ([]model.Game, bool, error) {
 	q := `SELECT ` + gameCols + ` FROM games`
-	var conds []string
-	var args []any
+	conds := []string{fmt.Sprintf("user_id = $%d", 1)}
+	args := []any{userID}
 	if status != nil {
 		args = append(args, *status)
 		conds = append(conds, fmt.Sprintf("status = $%d", len(args)))
@@ -234,9 +354,7 @@ func (s *Store) ListPage(
 		args = append(args, platform)
 		conds = append(conds, fmt.Sprintf("platform = $%d", len(args)))
 	}
-	if len(conds) > 0 {
-		q += ` WHERE ` + strings.Join(conds, " AND ")
-	}
+	q += ` WHERE ` + strings.Join(conds, " AND ")
 	switch sortKey {
 	case "title":
 		q += ` ORDER BY lower(title) ASC, id ASC`
@@ -272,19 +390,20 @@ func (s *Store) ListPage(
 	return games, hasMore, nil
 }
 
-// Count returns the total number of games in the collection.
-func (s *Store) Count(ctx context.Context) (int, error) {
+// Count returns the total number of games in a user's collection.
+func (s *Store) Count(ctx context.Context, userID int64) (int, error) {
 	var n int
-	err := s.pool.QueryRow(ctx, `SELECT count(*) FROM games`).Scan(&n)
+	err := s.pool.QueryRow(ctx, `SELECT count(*) FROM games WHERE user_id = $1`, userID).Scan(&n)
 	return n, err
 }
 
-// CountFiltered returns how many games match the library status/platform
-// filters (used for the "N games" label, which must not be the page size).
-func (s *Store) CountFiltered(ctx context.Context, status *model.Status, platform string) (int, error) {
+// CountFiltered returns how many of a user's games match the library
+// status/platform filters (used for the "N games" label, which must not
+// be the page size).
+func (s *Store) CountFiltered(ctx context.Context, userID int64, status *model.Status, platform string) (int, error) {
 	q := `SELECT count(*) FROM games`
-	var conds []string
-	var args []any
+	var conds []string = []string{fmt.Sprintf("user_id = $%d", 1)}
+	args := []any{userID}
 	if status != nil {
 		args = append(args, *status)
 		conds = append(conds, fmt.Sprintf("status = $%d", len(args)))
@@ -293,23 +412,21 @@ func (s *Store) CountFiltered(ctx context.Context, status *model.Status, platfor
 		args = append(args, platform)
 		conds = append(conds, fmt.Sprintf("platform = $%d", len(args)))
 	}
-	if len(conds) > 0 {
-		q += ` WHERE ` + strings.Join(conds, " AND ")
-	}
+	q += ` WHERE ` + strings.Join(conds, " AND ")
 	var n int
 	err := s.pool.QueryRow(ctx, q, args...).Scan(&n)
 	return n, err
 }
 
-// PlatformCounts returns the distinct non-empty platforms and how many
-// games each has, for the library filter panel.
-func (s *Store) PlatformCounts(ctx context.Context) ([]string, map[string]int, error) {
+// PlatformCounts returns a user's distinct non-empty platforms and how
+// many games each has, for the library filter panel.
+func (s *Store) PlatformCounts(ctx context.Context, userID int64) ([]string, map[string]int, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT platform, count(*)
 		FROM games
-		WHERE platform <> ''
+		WHERE user_id = $1 AND platform <> ''
 		GROUP BY platform
-		ORDER BY platform`)
+		ORDER BY platform`, userID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -329,18 +446,45 @@ func (s *Store) PlatformCounts(ctx context.Context) ([]string, map[string]int, e
 	return platforms, counts, rows.Err()
 }
 
-// Get returns a single game by id, or pgx.ErrNoRows.
-func (s *Store) Get(ctx context.Context, id int64) (*model.Game, error) {
-	return scanGame(s.pool.QueryRow(ctx,
-		`SELECT `+gameCols+` FROM games WHERE id = $1`, id))
+// CountByStatus returns how many of a user's games are in each status,
+// for the profile page. Statuses without games are absent from the map.
+func (s *Store) CountByStatus(ctx context.Context, userID int64) (map[model.Status]int, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT status, count(*)
+		FROM games
+		WHERE user_id = $1
+		GROUP BY status`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	counts := map[model.Status]int{}
+	for rows.Next() {
+		var st model.Status
+		var n int
+		if err := rows.Scan(&st, &n); err != nil {
+			return nil, err
+		}
+		counts[st] = n
+	}
+	return counts, rows.Err()
 }
 
-// Create inserts a new game and returns it with id and timestamps.
-// Returns *ErrDuplicate when a card with the same normalized title or
-// Steam app id already exists — a game may only appear once.
-func (s *Store) Create(ctx context.Context, g *model.Game) (*model.Game, error) {
+// Get returns a single game by id, or pgx.ErrNoRows. A game belonging
+// to another user is indistinguishable from a missing one.
+func (s *Store) Get(ctx context.Context, userID, id int64) (*model.Game, error) {
+	return scanGame(s.pool.QueryRow(ctx,
+		`SELECT `+gameCols+` FROM games WHERE id = $1 AND user_id = $2`, id, userID))
+}
+
+// Create inserts a new game in the user's collection and returns it with
+// id and timestamps. Returns *ErrDuplicate when a card with the same
+// normalized title or Steam app id already exists in that collection — a
+// game may only appear once per user.
+func (s *Store) Create(ctx context.Context, userID int64, g *model.Game) (*model.Game, error) {
 	norm := normalizeTitle(g.Title)
-	existing, err := s.findDuplicate(ctx, 0, g, norm)
+	existing, err := s.findDuplicate(ctx, userID, 0, g, norm)
 	if err != nil {
 		return nil, err
 	}
@@ -349,16 +493,16 @@ func (s *Store) Create(ctx context.Context, g *model.Game) (*model.Game, error) 
 	}
 
 	row := s.pool.QueryRow(ctx, `
-		INSERT INTO games (title, status, rating, platform, year, genre, cover_url, description, notes, steam_appid, time_to_beat_minutes, normalized_title)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		INSERT INTO games (user_id, title, status, rating, platform, year, genre, cover_url, description, notes, steam_appid, time_to_beat_minutes, normalized_title)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING `+gameCols,
-		g.Title, g.Status, g.Rating, g.Platform, g.Year, g.Genre, g.CoverURL,
+		userID, g.Title, g.Status, g.Rating, g.Platform, g.Year, g.Genre, g.CoverURL,
 		g.Description, g.Notes, g.SteamAppID, g.TimeToBeatMinutes, norm)
 	created, err := scanGame(row)
 	if isUniqueViolation(err) {
 		// Lost a race — the unique indexes are the backstop. Re-query to
 		// report the existing card instead of a raw constraint error.
-		if existing, findErr := s.findDuplicate(ctx, 0, g, norm); findErr == nil &&
+		if existing, findErr := s.findDuplicate(ctx, userID, 0, g, norm); findErr == nil &&
 			existing != nil {
 			return nil, &ErrDuplicate{Existing: *existing}
 		}
@@ -370,12 +514,12 @@ func (s *Store) Create(ctx context.Context, g *model.Game) (*model.Game, error) 
 	return created, nil
 }
 
-// Update overwrites a game by id and returns the updated row.
-// Returns *ErrDuplicate when the new title or Steam app id collides with
-// another card (a game may only appear once).
-func (s *Store) Update(ctx context.Context, id int64, g *model.Game) (*model.Game, error) {
+// Update overwrites a game by id (only within the user's collection) and
+// returns the updated row. Returns *ErrDuplicate when the new title or
+// Steam app id collides with another card in that collection.
+func (s *Store) Update(ctx context.Context, userID, id int64, g *model.Game) (*model.Game, error) {
 	norm := normalizeTitle(g.Title)
-	existing, err := s.findDuplicate(ctx, id, g, norm)
+	existing, err := s.findDuplicate(ctx, userID, id, g, norm)
 	if err != nil {
 		return nil, err
 	}
@@ -395,13 +539,13 @@ func (s *Store) Update(ctx context.Context, id int64, g *model.Game) (*model.Gam
 		    time_to_beat_minutes = COALESCE($11, time_to_beat_minutes),
 		    normalized_title = $12,
 		    updated_at = now()
-		WHERE id = $13
+		WHERE id = $13 AND user_id = $14
 		RETURNING `+gameCols,
 		g.Title, g.Status, g.Rating, g.Platform, g.Year, g.Genre, g.CoverURL,
-		g.Description, g.Notes, g.SteamAppID, g.TimeToBeatMinutes, norm, id)
+		g.Description, g.Notes, g.SteamAppID, g.TimeToBeatMinutes, norm, id, userID)
 	updated, err := scanGame(row)
 	if isUniqueViolation(err) {
-		if existing, findErr := s.findDuplicate(ctx, id, g, norm); findErr == nil &&
+		if existing, findErr := s.findDuplicate(ctx, userID, id, g, norm); findErr == nil &&
 			existing != nil {
 			return nil, &ErrDuplicate{Existing: *existing}
 		}
@@ -413,9 +557,10 @@ func (s *Store) Update(ctx context.Context, id int64, g *model.Game) (*model.Gam
 	return updated, nil
 }
 
-// Delete removes a game; returns pgx.ErrNoRows if it didn't exist.
-func (s *Store) Delete(ctx context.Context, id int64) error {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM games WHERE id = $1`, id)
+// Delete removes a game from the user's collection; returns pgx.ErrNoRows
+// if it didn't exist (or belonged to another user).
+func (s *Store) Delete(ctx context.Context, userID, id int64) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM games WHERE id = $1 AND user_id = $2`, id, userID)
 	if err != nil {
 		return err
 	}

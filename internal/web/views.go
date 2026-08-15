@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/leoarkiteto/questlog-api/internal/model"
 )
@@ -27,7 +28,7 @@ type LibraryView struct {
 	Platforms     []string
 	Counts        map[string]int
 	Total         int
-	FilteredCount int // games matching the current filter/platform (label)
+	FilteredCount int    // games matching the current filter/platform (label)
 	Filter        string // status value or "all"
 	Platform      string // selected platform, "" = all
 	Sort          string // "recent" | "title" | "rating"
@@ -44,17 +45,39 @@ type SearchView struct {
 
 // DetailView is the game-detail page model.
 type DetailView struct {
-	Game    *model.Game
-	Related []model.Game
-	Error   string
+	Game      *model.Game
+	Related   []model.Game
+	Error     string
+	CSRFToken string // per-session token for the enrich/delete posts
 }
 
 // FormView is the add/edit form page model. Game is nil for a blank
 // "add" form; IsEdit distinguishes edit (id known) from new.
 type FormView struct {
-	Game   *model.Game
-	Error  string
-	IsEdit bool
+	Game      *model.Game
+	Error     string
+	IsEdit    bool
+	CSRFToken string // per-session token for the form's POST
+}
+
+// LoginView is the sign-in page model.
+type LoginView struct {
+	Email     string // prefilled from a failed attempt
+	Error     string
+	CSRFToken string // anonymous CSRF token (no session yet)
+}
+
+// ProfileView is the user profile page model.
+type ProfileView struct {
+	User      *model.User
+	Counts    map[model.Status]int
+	Total     int
+	CSRFToken string // per-session token for the sign-out form
+}
+
+// profileDate renders a timestamp as "January 2, 2006".
+func profileDate(t time.Time) string {
+	return t.Format("January 2, 2006")
 }
 
 // PlatformCount is one row in the library filter panel.

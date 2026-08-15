@@ -78,11 +78,13 @@ templ DetailPage(v DetailView) {
 
 			<div class="flex flex-wrap gap-3 border-t border-white/5 pt-6">
 				<form method="post" action={ fmt.Sprintf("/games/%d/enrich", v.Game.ID) }>
+					<input type="hidden" name="_csrf" value={ v.CSRFToken }>
 					<button type="submit" class="rounded-full bg-emerald-950 px-5 py-2.5 text-sm font-semibold text-emerald-300 ring-1 ring-emerald-500/30 transition hover:bg-emerald-900">Get cover online</button>
 				</form>
 				<a href={ fmt.Sprintf("/games/%d/edit", v.Game.ID) } class="rounded-full bg-zinc-800 px-5 py-2.5 text-sm font-semibold text-zinc-100 ring-1 ring-white/10 transition hover:bg-zinc-700">Edit</a>
 				<button type="button"
 					hx-post={ fmt.Sprintf("/games/%d/delete", v.Game.ID) }
+					hx-vals={ fmt.Sprintf(`{"_csrf":%q}`, v.CSRFToken) }
 					hx-confirm={ fmt.Sprintf("Delete \"%s\" from your Questlog?", v.Game.Title) }
 					hx-target="body"
 					hx-swap="none"
