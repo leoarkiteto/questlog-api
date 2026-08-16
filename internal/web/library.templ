@@ -88,7 +88,7 @@ templ FilterPanel(v LibraryView) {
 				<p class="px-3 pt-5 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Platform</p>
 				<a href={ libraryURL(v.Filter, "", v.Sort) } class={ filterOptionClass(v.Platform == "") }>
 					<span>All platforms</span>
-					<span class="text-xs text-zinc-500">{ v.Total }</span>
+					<span class="text-xs text-zinc-500">{ v.AllPlatformsCount }</span>
 				</a>
 				for _, p := range v.Platforms {
 					<a href={ libraryURL(v.Filter, p, v.Sort) } class={ filterOptionClass(v.Platform == p) }>

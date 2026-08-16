@@ -17,6 +17,29 @@
     document.body.style.overflow = open ? "hidden" : "";
   }
 
+  // hx-boost swaps <body>'s innerHTML but keeps the <body> node, so a
+  // scroll lock applied to it would survive page changes and freeze
+  // every page (Library, Home, Profile — and pull-to-refresh on mobile).
+  // Force the panel closed and the lock cleared whenever HTMX replaces
+  // the whole page body (boosted navigation) or restores history.
+  function resetFilter() {
+    var overlay = document.getElementById("filter-overlay");
+    var backdrop = document.getElementById("filter-backdrop");
+    var panel = document.getElementById("filter-panel");
+    if (overlay) overlay.classList.add("pointer-events-none");
+    if (backdrop) {
+      backdrop.classList.remove("opacity-100");
+      backdrop.classList.add("opacity-0");
+    }
+    if (panel) panel.classList.add("translate-x-full");
+    document.body.style.overflow = "";
+  }
+
+  document.addEventListener("htmx:beforeSwap", function (e) {
+    if (e.detail.target === document.body) resetFilter();
+  });
+  document.addEventListener("htmx:historyRestore", resetFilter);
+
   window.qlOpenFilter = function () { setFilter(true); };
   window.qlCloseFilter = function () { setFilter(false); };
   window.qlClearRating = function () {

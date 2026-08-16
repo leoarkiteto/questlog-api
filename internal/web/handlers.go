@@ -400,7 +400,9 @@ func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	total, err := s.store.Count(ctx, uid)
+	// "All platforms" count: matches the current Status filter, with no
+	// platform constraint (what clicking "All platforms" would show).
+	allPlatformsCount, err := s.store.CountFiltered(ctx, uid, status, "")
 	if err != nil {
 		serverError(w, err)
 		return
@@ -410,7 +412,7 @@ func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	platforms, counts, err := s.store.PlatformCounts(ctx, uid)
+	platforms, counts, err := s.store.PlatformCounts(ctx, uid, status)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -433,17 +435,17 @@ func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	view := LibraryView{
-		Games:         games,
-		Platforms:     platforms,
-		Counts:        counts,
-		Total:         total,
-		FilteredCount: filteredCount,
-		Filter:        filter,
-		Platform:      platform,
-		Sort:          sortKey,
-		ActiveCount:   active,
-		HasMore:       hasMore,
-		NextPage:      nextLibraryPage(page, hasMore),
+		Games:             games,
+		Platforms:         platforms,
+		Counts:            counts,
+		AllPlatformsCount: allPlatformsCount,
+		FilteredCount:     filteredCount,
+		Filter:            filter,
+		Platform:          platform,
+		Sort:              sortKey,
+		ActiveCount:       active,
+		HasMore:           hasMore,
+		NextPage:          nextLibraryPage(page, hasMore),
 	}
 	render(w, r, http.StatusOK, Layout("Questlog — Library", r.URL.Path, "", sessionFrom(r), LibraryPage(view)))
 }

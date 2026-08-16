@@ -12,54 +12,60 @@ import (
 // StatusMeta holds the presentation data for one collection status,
 // mirroring the STATUSES table from the old React frontend.
 type StatusMeta struct {
-	Status model.Status
-	Label  string
-	Hint   string
-	Accent string // Tailwind text color class
-	Badge  string // Tailwind badge classes
-	Icon   string // icon key (see icons.go)
+	Status  model.Status
+	Label   string
+	Hint    string
+	Accent  string // Tailwind text color class
+	Badge   string // Tailwind badge classes
+	Checked string // Tailwind classes for the checked form pill (peer-checked:…)
+	Icon    string // icon key (see icons.go)
 }
 
 var statusMeta = map[model.Status]StatusMeta{
 	model.StatusWishlist: {
-		Status: model.StatusWishlist,
-		Label:  "Wishlist",
-		Hint:   "Games I want",
-		Accent: "text-amber-400",
-		Badge:  "bg-amber-400/10 text-amber-300 ring-amber-400/30",
-		Icon:   "sparkles",
+		Status:  model.StatusWishlist,
+		Label:   "Wishlist",
+		Hint:    "Games I want",
+		Accent:  "text-amber-400",
+		Badge:   "bg-amber-400/10 text-amber-300 ring-amber-400/30",
+		Checked: "peer-checked:bg-amber-400 peer-checked:text-zinc-950 peer-checked:ring-amber-300",
+		Icon:    "sparkles",
 	},
 	model.StatusPurchased: {
-		Status: model.StatusPurchased,
-		Label:  "Purchased",
-		Hint:   "Bought, not played yet",
-		Accent: "text-violet-400",
-		Badge:  "bg-violet-400/10 text-violet-300 ring-violet-400/30",
-		Icon:   "shopping-bag",
+		Status:  model.StatusPurchased,
+		Label:   "Purchased",
+		Hint:    "Bought, not played yet",
+		Accent:  "text-violet-400",
+		Badge:   "bg-violet-400/10 text-violet-300 ring-violet-400/30",
+		Checked: "peer-checked:bg-violet-400 peer-checked:text-zinc-950 peer-checked:ring-violet-300",
+		Icon:    "shopping-bag",
 	},
 	model.StatusPlaying: {
-		Status: model.StatusPlaying,
-		Label:  "Currently Playing",
-		Hint:   "Games I'm on now",
-		Accent: "text-sky-400",
-		Badge:  "bg-sky-400/10 text-sky-300 ring-sky-400/30",
-		Icon:   "gamepad-2",
+		Status:  model.StatusPlaying,
+		Label:   "Currently Playing",
+		Hint:    "Games I'm on now",
+		Accent:  "text-sky-400",
+		Badge:   "bg-sky-400/10 text-sky-300 ring-sky-400/30",
+		Checked: "peer-checked:bg-sky-400 peer-checked:text-zinc-950 peer-checked:ring-sky-300",
+		Icon:    "gamepad-2",
 	},
 	model.StatusPlayed: {
-		Status: model.StatusPlayed,
-		Label:  "Played",
-		Hint:   "Games I finished",
-		Accent: "text-emerald-400",
-		Badge:  "bg-emerald-400/10 text-emerald-300 ring-emerald-400/30",
-		Icon:   "trophy",
+		Status:  model.StatusPlayed,
+		Label:   "Played",
+		Hint:    "Games I finished",
+		Accent:  "text-emerald-400",
+		Badge:   "bg-emerald-400/10 text-emerald-300 ring-emerald-400/30",
+		Checked: "peer-checked:bg-emerald-400 peer-checked:text-zinc-950 peer-checked:ring-emerald-300",
+		Icon:    "trophy",
 	},
 	model.StatusDropped: {
-		Status: model.StatusDropped,
-		Label:  "Dropped",
-		Hint:   "Tried, didn't finish",
-		Accent: "text-rose-400",
-		Badge:  "bg-rose-400/10 text-rose-300 ring-rose-400/30",
-		Icon:   "flag",
+		Status:  model.StatusDropped,
+		Label:   "Dropped",
+		Hint:    "Tried, didn't finish",
+		Accent:  "text-rose-400",
+		Badge:   "bg-rose-400/10 text-rose-300 ring-rose-400/30",
+		Checked: "peer-checked:bg-rose-400 peer-checked:text-zinc-950 peer-checked:ring-rose-300",
+		Icon:    "flag",
 	},
 }
 

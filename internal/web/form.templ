@@ -30,7 +30,7 @@ templ GameForm(v FormView) {
 					<label>
 						<input type="radio" name="status" value={ string(s) } class="peer sr-only"
 							if v.Game.Status == s { checked }>
-						<span class="flex cursor-pointer items-center gap-1.5 rounded-xl px-2 py-2.5 text-xs font-semibold ring-1 ring-white/10 transition active:scale-[0.98] peer-checked:bg-red-600 peer-checked:text-white peer-checked:ring-red-500 hover:bg-zinc-900">
+						<span class={ "flex cursor-pointer items-center gap-1.5 rounded-xl px-2 py-2.5 text-xs font-semibold ring-1 ring-white/10 transition active:scale-[0.98] hover:bg-zinc-900 " + metaFor(s).Checked }>
 							@StatusIcon(s, "h-3.5 w-3.5")
 							{ metaFor(s).Label }
 						</span>
@@ -94,13 +94,11 @@ templ GameFields(v FormView) {
 					hx-trigger="keyup changed delay:500ms"
 					hx-target="#suggestions"
 					hx-include="this"
-					class="w-full rounded-lg border border-white/15 bg-zinc-900 px-2.5 py-2 pr-9 text-base text-zinc-100 placeholder-zinc-500 outline-none focus-visible:border-red-500/50 md:text-sm">
-				if v.Game.Title != "" {
-					<button type="button" aria-label="Clear title" onclick="this.previousElementSibling.value='';this.previousElementSibling.focus();this.previousElementSibling.dispatchEvent(new Event('input'));this.classList.add('hidden')"
-						class="absolute top-1/2 right-2 grid h-5 w-5 -translate-y-1/2 place-items-center rounded-full text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100">
-						@Icon("x", "h-3.5 w-3.5")
-					</button>
-				}
+					class="peer w-full rounded-lg border border-white/15 bg-zinc-900 px-2.5 py-2 pr-9 text-base text-zinc-100 placeholder-zinc-500 outline-none focus-visible:border-red-500/50 md:text-sm">
+				<button type="button" aria-label="Clear title" onclick="this.previousElementSibling.value='';this.previousElementSibling.focus();this.previousElementSibling.dispatchEvent(new Event('input'))"
+					class="peer-not-placeholder-shown:grid absolute top-1/2 right-2 hidden h-5 w-5 -translate-y-1/2 place-items-center rounded-full text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100">
+					@Icon("x", "h-3.5 w-3.5")
+				</button>
 			</div>
 			<button type="button"
 				hx-get="/partials/catalog/search"

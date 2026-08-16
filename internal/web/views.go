@@ -24,17 +24,17 @@ type DashboardView struct {
 
 // LibraryView is the library page model (server-side filter/sort).
 type LibraryView struct {
-	Games         []model.Game
-	Platforms     []string
-	Counts        map[string]int
-	Total         int
-	FilteredCount int    // games matching the current filter/platform (label)
-	Filter        string // status value or "all"
-	Platform      string // selected platform, "" = all
-	Sort          string // "recent" | "title" | "rating"
-	ActiveCount   int
-	HasMore       bool // another page exists (renders the load-more sentinel)
-	NextPage      int  // page the sentinel fetches (0 when exhausted)
+	Games             []model.Game
+	Platforms         []string
+	Counts            map[string]int
+	AllPlatformsCount int    // games matching the Status filter (platform unconstrained)
+	FilteredCount     int    // games matching the current filter/platform (label)
+	Filter            string // status value or "all"
+	Platform          string // selected platform, "" = all
+	Sort              string // "recent" | "title" | "rating"
+	ActiveCount       int
+	HasMore           bool // another page exists (renders the load-more sentinel)
+	NextPage          int  // page the sentinel fetches (0 when exhausted)
 }
 
 // SearchView is the search-results page model.

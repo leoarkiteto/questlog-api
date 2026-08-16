@@ -37,6 +37,13 @@
   background: linear-gradient(to left, #09090b 10%, transparent);
 }
 
+/* We render our own clear button on search inputs (peer-not-placeholder-shown),
+   so hide the native WebKit one to avoid a double "×". */
+input[type="search"]::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
 /* HTMX request indicator */
 .htmx-indicator {
   display: none;

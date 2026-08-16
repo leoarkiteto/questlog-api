@@ -46,13 +46,11 @@ templ Header(path string, q string, sess *auth.Session) {
 							<path d="M20 20l-3.5-3.5" stroke-width="2" stroke-linecap="round"></path>
 						</svg>
 						<input type="search" name="q" value={ q } placeholder="Search your library…" aria-label="Search your library"
-							class="w-full truncate rounded-full border-white/10 bg-zinc-900 py-2 pr-8 pl-9 text-sm text-zinc-100 placeholder-zinc-500 focus-visible:border-red-500/50 focus-visible:bg-zinc-900">
-						if q != "" {
-							<button type="button" aria-label="Clear search" onclick="this.previousElementSibling.value='';this.previousElementSibling.focus();this.classList.add('hidden')"
-								class="absolute top-1/2 right-2 grid h-5 w-5 -translate-y-1/2 place-items-center rounded-full text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100">
-								@Icon("x", "h-3.5 w-3.5")
-							</button>
-						}
+							class="peer w-full truncate rounded-full border-white/10 bg-zinc-900 py-2 pr-8 pl-9 text-sm text-zinc-100 placeholder-zinc-500 focus-visible:border-red-500/50 focus-visible:bg-zinc-900">
+						<button type="button" aria-label="Clear search" onclick="this.previousElementSibling.value='';this.previousElementSibling.focus()"
+							class="peer-not-placeholder-shown:grid absolute top-1/2 right-2 hidden h-5 w-5 -translate-y-1/2 place-items-center rounded-full text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100">
+							@Icon("x", "h-3.5 w-3.5")
+						</button>
 					</div>
 				</form>
 

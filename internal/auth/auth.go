@@ -155,6 +155,30 @@ func (s *Service) Register(ctx context.Context, email, password string) (*model.
 	return s.users.CreateUser(ctx, email, hash)
 }
 
+// SetPassword replaces the password hash for an existing account. It is
+// used by cmd/user (closed registration) — not the web UI. Returns
+// ErrInvalidEmail for a malformed address, ErrWeakPassword when the new
+// password is too short or too long, and pgx.ErrNoRows when no user
+// matches the email.
+func (s *Service) SetPassword(ctx context.Context, email, password string) error {
+	email = NormalizeEmail(email)
+	if !validEmail(email) {
+		return ErrInvalidEmail
+	}
+	if len(password) < minPasswordLen || len(password) > maxPasswordLen {
+		return ErrWeakPassword
+	}
+	u, err := s.users.UserByEmail(ctx, email)
+	if err != nil {
+		return err
+	}
+	hash, err := s.hasher.Hash(password)
+	if err != nil {
+		return err
+	}
+	return s.users.UpdateUserPassword(ctx, u.ID, hash)
+}
+
 // Authenticate verifies an email + password pair, returning the user or
 // ErrInvalidCredentials. The same error hides unknown emails and wrong
 // passwords so accounts cannot be enumerated through the login form.

@@ -419,14 +419,22 @@ func (s *Store) CountFiltered(ctx context.Context, userID int64, status *model.S
 }
 
 // PlatformCounts returns a user's distinct non-empty platforms and how
-// many games each has, for the library filter panel.
-func (s *Store) PlatformCounts(ctx context.Context, userID int64) ([]string, map[string]int, error) {
+// many games each has, for the library filter panel. When status is
+// non-nil, counts are scoped to that status so the panel reflects the
+// currently selected Status filter.
+func (s *Store) PlatformCounts(ctx context.Context, userID int64, status *model.Status) ([]string, map[string]int, error) {
+	args := []any{userID}
+	cond := `user_id = $1 AND platform <> ''`
+	if status != nil {
+		args = append(args, *status)
+		cond += fmt.Sprintf(" AND status = $%d", len(args))
+	}
 	rows, err := s.pool.Query(ctx, `
 		SELECT platform, count(*)
 		FROM games
-		WHERE user_id = $1 AND platform <> ''
+		WHERE `+cond+`
 		GROUP BY platform
-		ORDER BY platform`, userID)
+		ORDER BY platform`, args...)
 	if err != nil {
 		return nil, nil, err
 	}

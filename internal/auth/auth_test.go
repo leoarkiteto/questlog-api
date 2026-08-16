@@ -204,6 +204,39 @@ func TestRegisterInvalidInputs(t *testing.T) {
 	}
 }
 
+// ---- set password ----
+
+func TestSetPassword(t *testing.T) {
+	svc, users, _ := newTestService()
+	ctx := context.Background()
+	if _, err := svc.Register(ctx, "me@example.com", "hunter22"); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	if err := svc.SetPassword(ctx, "  ME@example.com ", "new-pass-1"); err != nil {
+		t.Fatalf("SetPassword: %v", err)
+	}
+	if users.updates != 1 || users.updatedUser != 1 || users.updatedHash != "hash:new-pass-1" {
+		t.Errorf("update = (%d, %d, %q), want (1, 1, %q)",
+			users.updates, users.updatedUser, users.updatedHash, "hash:new-pass-1")
+	}
+}
+
+func TestSetPasswordInvalid(t *testing.T) {
+	svc, _, _ := newTestService()
+	ctx := context.Background()
+
+	if err := svc.SetPassword(ctx, "not-an-email", "hunter22"); !errors.Is(err, ErrInvalidEmail) {
+		t.Errorf("bad email err = %v, want ErrInvalidEmail", err)
+	}
+	if err := svc.SetPassword(ctx, "me@example.com", "short"); !errors.Is(err, ErrWeakPassword) {
+		t.Errorf("weak password err = %v, want ErrWeakPassword", err)
+	}
+	if err := svc.SetPassword(ctx, "nobody@example.com", "hunter22"); !errors.Is(err, pgx.ErrNoRows) {
+		t.Errorf("unknown email err = %v, want pgx.ErrNoRows", err)
+	}
+}
+
 // ---- authentication ----
 
 func TestAuthenticate(t *testing.T) {
