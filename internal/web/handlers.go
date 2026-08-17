@@ -678,11 +678,16 @@ func (s *Server) handleEnrich(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCatalogSearch(w http.ResponseWriter, r *http.Request) {
 	q := strings.TrimSpace(r.FormValue("title"))
 	if len(q) < 2 {
-		renderFragment(w, r, CatalogSuggestions(nil, false))
+		renderFragment(w, r, CatalogSuggestions(nil, false, nil))
 		return
 	}
 	results := s.catalog.Search(r.Context(), q)
-	renderFragment(w, r, CatalogSuggestions(results, true))
+	existing, err := s.store.FindDuplicate(r.Context(), userID(r), 0, &model.Game{Title: q})
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	renderFragment(w, r, CatalogSuggestions(results, true, existing))
 }
 
 func (s *Server) handleCatalogApp(w http.ResponseWriter, r *http.Request) {
@@ -733,7 +738,12 @@ func (s *Server) handleCatalogApp(w http.ResponseWriter, r *http.Request) {
 		filled.TimeToBeatMinutes = cur.TimeToBeatMinutes
 	}
 
-	renderFragment(w, r, GameFields(FormView{Game: filled}))
+	existing, dupErr := s.store.FindDuplicate(r.Context(), userID(r), 0, filled)
+	if dupErr != nil {
+		serverError(w, dupErr)
+		return
+	}
+	renderFragment(w, r, GameFields(FormView{Game: filled, Duplicate: existing}))
 }
 
 // ---- Helpers ----
@@ -766,8 +776,12 @@ func serverError(w http.ResponseWriter, err error) {
 }
 
 func duplicateMessage(dup *repo.ErrDuplicate) string {
-	return strconv.Quote(dup.Existing.Title) + " is already in your collection as " +
-		metaFor(dup.Existing.Status).Label + " — edit that card to change its list."
+	return duplicateGameMessage(&dup.Existing)
+}
+
+func duplicateGameMessage(existing *model.Game) string {
+	return strconv.Quote(existing.Title) + " is already in your collection as " +
+		metaFor(existing.Status).Label + " — edit that card to change its list."
 }
 
 func validFilter(f string) bool {

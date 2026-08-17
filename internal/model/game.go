@@ -66,6 +66,7 @@ type User struct {
 type Game struct {
 	UpdatedAt         time.Time `json:"updatedAt"`
 	CreatedAt         time.Time `json:"createdAt"`
+	StatusChangedAt   time.Time `json:"statusChangedAt"`
 	Year              *int      `json:"year"`
 	TimeToBeatMinutes *int      `json:"timeToBeatMinutes"`
 	SteamAppID        *int64    `json:"steamAppId"`

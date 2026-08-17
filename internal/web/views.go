@@ -58,6 +58,7 @@ type FormView struct {
 	Error     string
 	IsEdit    bool
 	CSRFToken string // per-session token for the form's POST
+	Duplicate *model.Game // a collection card matching the searched/auto-filled game (warn before add)
 }
 
 // LoginView is the sign-in page model.

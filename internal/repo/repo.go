@@ -291,13 +291,22 @@ func (s *Store) findDuplicate(
 	return existing, nil
 }
 
-const gameCols = `id, user_id, title, status, rating, platform, year, genre, cover_url, description, notes, steam_appid, time_to_beat_minutes, created_at, updated_at`
+// FindDuplicate returns the first card that would collide with g inside
+// the user's collection (same normalized title or same non-null Steam
+// app id), or nil when there is no conflict. excludeID skips the card
+// being updated. Used by the add-form catalog search to warn before the
+// user completes the add flow.
+func (s *Store) FindDuplicate(ctx context.Context, userID, excludeID int64, g *model.Game) (*model.Game, error) {
+	return s.findDuplicate(ctx, userID, excludeID, g, normalizeTitle(g.Title))
+}
+
+const gameCols = `id, user_id, title, status, rating, platform, year, genre, cover_url, description, notes, steam_appid, time_to_beat_minutes, created_at, updated_at, status_changed_at`
 
 func scanGame(row pgx.Row) (*model.Game, error) {
 	var g model.Game
 	err := row.Scan(&g.ID, &g.UserID, &g.Title, &g.Status, &g.Rating, &g.Platform,
 		&g.Year, &g.Genre, &g.CoverURL, &g.Description, &g.Notes, &g.SteamAppID,
-		&g.TimeToBeatMinutes, &g.CreatedAt, &g.UpdatedAt)
+		&g.TimeToBeatMinutes, &g.CreatedAt, &g.UpdatedAt, &g.StatusChangedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -334,7 +343,9 @@ func (s *Store) List(ctx context.Context, userID int64, status *model.Status) ([
 
 // ListPage returns one page of a user's games matching the library
 // filters, plus whether more rows exist beyond it. sortKey is "recent"
-// (default), "title", or "rating". limit/offset paginate; LIMIT is
+// (default), "title", or "rating". "recent" means the most recently
+// added game first, except that a status change re-ranks a game as if
+// it had just entered that status. limit/offset paginate; LIMIT is
 // fetched as limit+1 so hasMore is decided without a second query.
 func (s *Store) ListPage(
 	ctx context.Context,
@@ -361,7 +372,7 @@ func (s *Store) ListPage(
 	case "rating":
 		q += ` ORDER BY rating DESC, lower(title) ASC, id ASC`
 	default:
-		q += ` ORDER BY created_at DESC, id DESC`
+		q += ` ORDER BY status_changed_at DESC, id DESC`
 	}
 	args = append(args, limit+1, offset)
 	q += fmt.Sprintf(` LIMIT $%d OFFSET $%d`, len(args)-1, len(args))
@@ -546,7 +557,8 @@ func (s *Store) Update(ctx context.Context, userID, id int64, g *model.Game) (*m
 		    steam_appid = $10,
 		    time_to_beat_minutes = COALESCE($11, time_to_beat_minutes),
 		    normalized_title = $12,
-		    updated_at = now()
+		    updated_at = now(),
+		    status_changed_at = CASE WHEN status <> $2 THEN now() ELSE status_changed_at END
 		WHERE id = $13 AND user_id = $14
 		RETURNING `+gameCols,
 		g.Title, g.Status, g.Rating, g.Platform, g.Year, g.Genre, g.CoverURL,
