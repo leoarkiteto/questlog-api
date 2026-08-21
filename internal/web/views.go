@@ -49,6 +49,7 @@ type DetailView struct {
 	Related   []model.Game
 	Error     string
 	CSRFToken string // per-session token for the enrich/delete posts
+	Enriched  bool   // ?enriched=1: the last "Get cover online" succeeded (button renders "Done")
 }
 
 // FormView is the add/edit form page model. Game is nil for a blank
@@ -224,4 +225,28 @@ func dashboardRowClass(i int) string {
 		return "border-t border-white/10 pt-8"
 	}
 	return ""
+}
+
+// "Get cover online" (enrich) button states rendered by enrichForm.
+const (
+	enrichStateIdle   = "idle"
+	enrichStateDone   = "done"
+	enrichStateFailed = "failed"
+)
+
+// enrichState maps the detail page's enriched flag to a button state.
+func enrichState(enriched bool) string {
+	if enriched {
+		return enrichStateDone
+	}
+	return enrichStateIdle
+}
+
+// enrichButtonClass styles the enrich button; the failed state uses red
+// tones so the result is visible at a glance, idle/done stay emerald.
+func enrichButtonClass(state string) string {
+	if state == enrichStateFailed {
+		return "bg-red-950 text-red-300 ring-red-500/30 hover:bg-red-900"
+	}
+	return "bg-emerald-950 text-emerald-300 ring-emerald-500/30 hover:bg-emerald-900"
 }

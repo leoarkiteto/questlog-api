@@ -521,6 +521,7 @@ func (s *Server) handleDetail(w http.ResponseWriter, r *http.Request) {
 		Related:   relatedGames(r.Context(), s, userID(r), g),
 		Error:     r.URL.Query().Get("error"),
 		CSRFToken: sessionFrom(r).CSRFToken,
+		Enriched:  r.URL.Query().Get("enriched") == "1",
 	}
 	render(w, r, http.StatusOK, Layout("Questlog — "+g.Title, r.URL.Path, "", sessionFrom(r), DetailPage(view)))
 }
@@ -594,12 +595,17 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 
 // handleEnrich mirrors the old frontend's "Get cover online": it looks
 // up the game in the catalog and fills missing metadata, keeping
-// rating/status/notes.
+// rating/status/notes. HTMX requests get a fragment swap of the button
+// (failed → retryable "Failed" with the error inline); plain requests
+// keep the old ?error= redirect. On success the page reloads so the
+// refreshed cover/metadata render, with ?enriched=1 flagging the "Done"
+// button state.
 func (s *Server) handleEnrich(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r)
 	if !ok {
 		return
 	}
+	isHX := r.Header.Get("HX-Request") != ""
 	g, err := s.store.Get(r.Context(), userID(r), id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		http.NotFound(w, r)
@@ -631,13 +637,13 @@ func (s *Server) handleEnrich(w http.ResponseWriter, r *http.Request) {
 		match = &matches[0]
 	}
 	if match == nil {
-		http.Redirect(w, r, gamePath(id)+"?error="+urlQuery(`No cover found for "`+g.Title+`".`), http.StatusSeeOther)
+		enrichFailure(w, r, id, isHX, `No cover found for "`+g.Title+`".`)
 		return
 	}
 
 	details, err := s.catalog.Details(r.Context(), match.Source, match.AppID)
 	if err != nil {
-		http.Redirect(w, r, gamePath(id)+"?error="+urlQuery("Lookup failed: "+err.Error()), http.StatusSeeOther)
+		enrichFailure(w, r, id, isHX, "Lookup failed: "+err.Error())
 		return
 	}
 
@@ -667,10 +673,26 @@ func (s *Server) handleEnrich(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, err := s.store.Update(r.Context(), userID(r), id, &update); err != nil {
-		http.Redirect(w, r, gamePath(id)+"?error="+urlQuery("Update failed: "+err.Error()), http.StatusSeeOther)
+		enrichFailure(w, r, id, isHX, "Update failed: "+err.Error())
 		return
 	}
-	http.Redirect(w, r, gamePath(id), http.StatusSeeOther)
+	if isHX {
+		w.Header().Set("HX-Redirect", gamePath(id)+"?enriched=1")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	http.Redirect(w, r, gamePath(id)+"?enriched=1", http.StatusSeeOther)
+}
+
+// enrichFailure reports an enrich error: for HTMX it swaps the button
+// into its retryable "Failed" state with the reason shown inline; plain
+// requests get the pre-HTMX ?error= redirect.
+func enrichFailure(w http.ResponseWriter, r *http.Request, id int64, isHX bool, msg string) {
+	if isHX {
+		renderFragment(w, r, enrichForm(id, sessionFrom(r).CSRFToken, enrichStateFailed, msg))
+		return
+	}
+	http.Redirect(w, r, gamePath(id)+"?error="+urlQuery(msg), http.StatusSeeOther)
 }
 
 // ---- HTMX partials ----
@@ -818,7 +840,10 @@ func pickFeatured(games []model.Game) *model.Game {
 	return nil
 }
 
-// buildRows groups games under each status in display order.
+// buildRows groups games under each status in display order, newest
+// entry into that status first (status_changed_at, same as the library's
+// "recent" sort). That way editing a game into a new status surfaces it
+// at the front of its row; the hero and search keep their own orderings.
 func buildRows(games []model.Game) []StatusRow {
 	rows := make([]StatusRow, 0, len(model.AllStatuses))
 	for _, st := range model.AllStatuses {
@@ -828,6 +853,12 @@ func buildRows(games []model.Game) []StatusRow {
 				matches = append(matches, g)
 			}
 		}
+		sort.SliceStable(matches, func(i, j int) bool {
+			if !matches[i].StatusChangedAt.Equal(matches[j].StatusChangedAt) {
+				return matches[i].StatusChangedAt.After(matches[j].StatusChangedAt)
+			}
+			return matches[i].ID > matches[j].ID
+		})
 		rows = append(rows, StatusRow{Status: st, Games: matches})
 	}
 	return rows

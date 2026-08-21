@@ -22,7 +22,7 @@ templ GameFormPage(v FormView) {
 // GameForm is the add/edit form. It POSTs to /games (new) or
 // /games/{id} (edit); the handler decides which.
 templ GameForm(v FormView) {
-	<form method="post" action={ formAction(v) } class="space-y-5">
+	<form method="post" action={ formAction(v) } class="game-form space-y-5">
 		<input type="hidden" name="_csrf" value={ v.CSRFToken }>
 		<div>
 			<span class={ fieldLabel }>List</span>
@@ -44,28 +44,26 @@ templ GameForm(v FormView) {
 			@GameFields(v)
 		</div>
 
-		if canRate(v.Game.Status) {
-			<div>
-				<span class={ fieldLabel }>Rating · how much did you like it?</span>
-				<div class="flex items-center gap-3 rounded-xl border border-white/10 bg-zinc-900 px-4 py-3">
-					<div class="inline-flex items-center gap-1">
-						for n := 1; n <= 5; n++ {
-							<label class="cursor-pointer">
-								<input type="radio" name="rating" value={ fmt.Sprintf("%d", n) } class="sr-only"
-									if v.Game.Rating == n { checked }>
-								<svg viewBox="0 0 24 24" class={ ratingInputClass(n <= v.Game.Rating) }>
-									<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path>
-								</svg>
-							</label>
-						}
-					</div>
-					<span class="text-xs text-zinc-500">{ ratingHint(v.Game.Rating) }</span>
-					if v.Game.Rating > 0 {
-						<button type="button" onclick="qlClearRating()" class="text-xs font-medium text-zinc-500 transition hover:text-zinc-200">Clear</button>
+		<div id="rating-field">
+			<span class={ fieldLabel }>Rating · how much did you like it?</span>
+			<div class="flex items-center gap-3 rounded-xl border border-white/10 bg-zinc-900 px-4 py-3">
+				<div class="rating-stars inline-flex items-center gap-1">
+					for n := 1; n <= 5; n++ {
+						<label class="cursor-pointer">
+							<input type="radio" name="rating" value={ fmt.Sprintf("%d", n) } class="sr-only"
+								if v.Game.Rating == n { checked }>
+							<svg viewBox="0 0 24 24" class={ ratingInputClass(n <= v.Game.Rating) }>
+								<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path>
+							</svg>
+						</label>
 					}
 				</div>
+				<span class="text-xs text-zinc-500">{ ratingHint(v.Game.Rating) }</span>
+				if v.Game.Rating > 0 {
+					<button type="button" onclick="qlClearRating()" class="text-xs font-medium text-zinc-500 transition hover:text-zinc-200">Clear</button>
+				}
 			</div>
-		}
+		</div>
 
 		<div>
 			<label for="notes" class={ fieldLabel }>Notes</label>

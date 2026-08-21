@@ -109,9 +109,10 @@ func formatTimeToBeat(minutes int) string {
 	return fmt.Sprintf("~%dh %dm", h, m)
 }
 
-// canRate reports whether a status shows a star rating (played/dropped).
+// canRate reports whether a status shows a star rating: every status
+// except wishlist, purchased and currently-playing.
 func canRate(s model.Status) bool {
-	return s == model.StatusPlayed || s == model.StatusDropped
+	return s != model.StatusWishlist && s != model.StatusPurchased && s != model.StatusPlaying
 }
 
 // starClass returns the Tailwind classes for a rating star.

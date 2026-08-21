@@ -7,7 +7,7 @@ import (
 )
 
 // GameCard is the card used in rows and grids: cover, compact star
-// rating (played/dropped only), title, and platform icon.
+// rating (hidden on wishlist/currently-playing), title, and platform icon.
 templ GameCard(g model.Game, class string, glow bool) {
 	<a href={ fmt.Sprintf("/games/%d", g.ID) } class={ "group flex flex-col gap-1.5 outline-none " + class }>
 		@GameCover(g.Title, g.CoverURL, coverClasses(glow))

@@ -44,6 +44,35 @@ input[type="search"]::-webkit-search-cancel-button {
   appearance: none;
 }
 
+/* Star rating only makes sense outside wishlist / purchased /
+   currently-playing. Hide the field (instead of disabling it) while one
+   of those statuses is selected, and show it again the moment another
+   status is picked. */
+.game-form:has(input[name="status"][value="wishlist"]:checked) #rating-field,
+.game-form:has(input[name="status"][value="purchased"]:checked) #rating-field,
+.game-form:has(input[name="status"][value="playing"]:checked) #rating-field {
+  display: none;
+}
+
+/* Interactive star rating: the server renders the saved fill, but
+   clicking a star must light it up (plus every star to its left) without
+   JS. `:has()` on the container + nth-child keeps it cumulative — same
+   fill as the checked value; :hover previews the selection. */
+.rating-stars:has(input[value="1"]:checked) label:nth-child(1) svg,
+.rating-stars:has(label:nth-child(1):hover) label:nth-child(1) svg,
+.rating-stars:has(input[value="2"]:checked) label:nth-child(-n+2) svg,
+.rating-stars:has(label:nth-child(2):hover) label:nth-child(-n+2) svg,
+.rating-stars:has(input[value="3"]:checked) label:nth-child(-n+3) svg,
+.rating-stars:has(label:nth-child(3):hover) label:nth-child(-n+3) svg,
+.rating-stars:has(input[value="4"]:checked) label:nth-child(-n+4) svg,
+.rating-stars:has(label:nth-child(4):hover) label:nth-child(-n+4) svg,
+.rating-stars:has(input[value="5"]:checked) label:nth-child(-n+5) svg,
+.rating-stars:has(label:nth-child(5):hover) label:nth-child(-n+5) svg {
+  fill: #fbbf24; /* amber-400 */
+  color: #fbbf24;
+  filter: drop-shadow(0 0 6px rgba(251, 191, 36, 0.45));
+}
+
 /* HTMX request indicator */
 .htmx-indicator {
   display: none;
@@ -51,4 +80,11 @@ input[type="search"]::-webkit-search-cancel-button {
 .htmx-request .htmx-indicator,
 .htmx-request.htmx-indicator {
   display: inline;
+}
+
+/* "Get cover online" (enrich) button: while the HTMX request is in
+   flight the button carries .htmx-request — hide the static label so
+   only the .htmx-indicator "Fetching" text shows. */
+.enrich-btn.htmx-request .enrich-label {
+  display: none;
 }

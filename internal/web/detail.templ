@@ -77,10 +77,7 @@ templ DetailPage(v DetailView) {
 			}
 
 			<div class="flex flex-wrap gap-3 border-t border-white/5 pt-6">
-				<form method="post" action={ fmt.Sprintf("/games/%d/enrich", v.Game.ID) }>
-					<input type="hidden" name="_csrf" value={ v.CSRFToken }>
-					<button type="submit" class="rounded-full bg-emerald-950 px-5 py-2.5 text-sm font-semibold text-emerald-300 ring-1 ring-emerald-500/30 transition hover:bg-emerald-900">Get cover online</button>
-				</form>
+				@enrichForm(v.Game.ID, v.CSRFToken, enrichState(v.Enriched), "")
 				<a href={ fmt.Sprintf("/games/%d/edit", v.Game.ID) } class="rounded-full bg-zinc-800 px-5 py-2.5 text-sm font-semibold text-zinc-100 ring-1 ring-white/10 transition hover:bg-zinc-700">Edit</a>
 				<button type="button"
 					hx-post={ fmt.Sprintf("/games/%d/delete", v.Game.ID) }
@@ -94,4 +91,36 @@ templ DetailPage(v DetailView) {
 			</div>
 		</div>
 	</div>
+}
+
+// enrichForm is the "Get cover online" control. HTMX swaps the whole form
+// with the next state: idle ("Get cover online") → fetching (the label is
+// hidden and .htmx-indicator "Fetching" shown while .htmx-request is on
+// the button) → done (inert button, rendered after the success redirect)
+// or failed (retryable submit with the error shown inline).
+templ enrichForm(gameID int64, csrf, state, errMsg string) {
+	<form method="post" action={ fmt.Sprintf("/games/%d/enrich", gameID) }>
+		<input type="hidden" name="_csrf" value={ csrf }>
+		if state == enrichStateDone {
+			<button type="button" class={ "enrich-btn cursor-default rounded-full px-5 py-2.5 text-sm font-semibold transition " + enrichButtonClass(state) }>Done</button>
+		} else {
+			<button type="submit"
+				hx-post={ fmt.Sprintf("/games/%d/enrich", gameID) }
+				hx-include="closest form"
+				hx-target="closest form"
+				hx-swap="outerHTML"
+				hx-disabled-elt="this"
+				class={ "enrich-btn rounded-full px-5 py-2.5 text-sm font-semibold transition " + enrichButtonClass(state) }>
+				if state == enrichStateFailed {
+					<span class="enrich-label">Failed</span>
+				} else {
+					<span class="enrich-label">Get cover online</span>
+				}
+				<span class="htmx-indicator">Fetching</span>
+			</button>
+			if errMsg != "" {
+				<p class="mt-2 max-w-xs text-xs leading-relaxed text-red-400">{ errMsg }</p>
+			}
+		}
+	</form>
 }
